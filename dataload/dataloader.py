@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from dataload.dataset import TimeSeriesWindowDataset, load_time_series
 from dataload.scaler import StandardScaler
 from utils.config import validate_config
+from utils.seed import seed_worker
 
 
 @dataclass(frozen=True)
@@ -36,12 +35,6 @@ class DataBundle:
     input_dim: int
     output_dim: int
     split_metadata: SplitMetadata
-
-
-def _seed_worker(worker_id: int) -> None:
-    worker_seed = torch.initial_seed() % (2**32)
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
 
 
 def create_dataloaders(config: dict[str, Any]) -> DataBundle:
@@ -102,7 +95,7 @@ def create_dataloaders(config: dict[str, Any]) -> DataBundle:
         "batch_size": data["batch_size"],
         "num_workers": data["num_workers"],
         "pin_memory": data["pin_memory"],
-        "worker_init_fn": _seed_worker,
+        "worker_init_fn": seed_worker,
     }
     train_loader = DataLoader(
         train_dataset, shuffle=True, generator=generator, **loader_kwargs
