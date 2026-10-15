@@ -1,4 +1,5 @@
 import json
+import os
 
 import numpy as np
 import torch
@@ -28,6 +29,12 @@ def test_set_seed_repeats_numpy_and_torch_sequences():
 
     np.testing.assert_array_equal(np.random.rand(4), first_numpy)
     torch.testing.assert_close(torch.rand(4), first_torch, rtol=0, atol=0)
+
+
+def test_deterministic_seed_configures_cublas_before_cuda(monkeypatch):
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    set_seed(123, deterministic=True)
+    assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
 
 
 def test_experiment_paths_are_unique_and_scoped(project_root):
