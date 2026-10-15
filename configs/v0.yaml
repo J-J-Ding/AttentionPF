@@ -1,0 +1,67 @@
+experiment:
+  name: v0_etth1_ms
+  seed: 2026
+  device: auto
+  output_root: .
+  deterministic: true
+
+data:
+  path: datasets/raw/ETTh1.csv
+  date_col: date
+  feature_cols: [HUFL, HULL, MUFL, MULL, LUFL, LULL, OT]
+  target_cols: [OT]
+  features: MS
+  seq_len: 96
+  pred_len: 24
+  stride: 1
+  batch_size: 32
+  num_workers: 0
+  pin_memory: false
+  split:
+    type: ratio
+    train: 0.7
+    val: 0.1
+    test: 0.2
+
+model:
+  name: v0
+  d_model: 128
+  n_heads: 4
+  n_layers: 3
+  d_ff: 256
+  dropout: 0.1
+  activation: gelu
+  positional_encoding: sinusoidal
+
+interval:
+  lower_quantile: 0.05
+  median_quantile: 0.50
+  upper_quantile: 0.95
+  epsilon: 1.0e-6
+
+loss:
+  interval_weight: 0.0
+
+optimizer:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+
+scheduler:
+  name: none
+
+training:
+  epochs: 50
+  early_stopping_patience: 10
+  monitor: val_loss
+  monitor_mode: min
+  grad_clip_norm: 1.0
+  resume_from: null
+
+evaluation:
+  coverage: 0.9
+  save_predictions: true
+
+logging:
+  level: INFO
+
