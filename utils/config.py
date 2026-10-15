@@ -157,6 +157,8 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("quantiles must satisfy 0 < lower < median == 0.5 < upper < 1")
     if float(interval["epsilon"]) <= 0.0:
         raise ValueError("interval.epsilon must be positive")
+    if float(config["loss"]["interval_weight"]) < 0.0:
+        raise ValueError("loss.interval_weight must be non-negative")
     if abs(float(evaluation["coverage"]) - (upper - lower)) > 1.0e-9:
         raise ValueError("evaluation.coverage must equal upper_quantile - lower_quantile")
 
@@ -167,4 +169,8 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("training.early_stopping_patience must be a positive integer")
     if training["monitor_mode"] not in {"min", "max"}:
         raise ValueError("training.monitor_mode must be 'min' or 'max'")
+    if training["monitor"] != "val_loss":
+        raise ValueError("V0 training.monitor must be 'val_loss'")
+    if training["monitor_mode"] != "min":
+        raise ValueError("V0 val_loss requires training.monitor_mode='min'")
 

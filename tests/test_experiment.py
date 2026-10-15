@@ -7,7 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Subset
 
 from dataload.dataloader import create_dataloaders
-from epx_main import predict, run_experiment, train_one_epoch, validate
+from epx_main import build_loss, predict, run_experiment, train_one_epoch, validate
 from losses.quantile_loss import QuantileLoss
 from models import build_model
 from models.base_model import BaseForecastModel
@@ -27,11 +27,17 @@ def _small_setup(project_root):
     config["training"].update({"epochs": 2, "early_stopping_patience": 2})
     bundle = create_dataloaders(config)
 
-    def subset_loader(loader, count=16):
-        return DataLoader(Subset(loader.dataset, range(count)), batch_size=8, shuffle=False)
+    def subset_loader(loader, count=16, *, training=False):
+        generator = torch.Generator().manual_seed(config["experiment"]["seed"]) if training else None
+        return DataLoader(
+            Subset(loader.dataset, range(count)),
+            batch_size=8,
+            shuffle=training,
+            generator=generator,
+        )
 
     model = build_model("v0", config, bundle.input_dim, bundle.output_dim)
-    return config, bundle, model, subset_loader(bundle.train_loader), subset_loader(bundle.val_loader), subset_loader(bundle.test_loader)
+    return config, bundle, model, subset_loader(bundle.train_loader, training=True), subset_loader(bundle.val_loader), subset_loader(bundle.test_loader)
 
 
 def test_train_updates_parameters_and_returns_element_weighted_loss(project_root):
@@ -108,4 +114,49 @@ def test_run_experiment_saves_and_reloads_best_checkpoint(project_root):
     assert saved["predictions"].shape == (16, 4, 1, 3)
     assert np.all(saved["predictions"][..., 0] < saved["predictions"][..., 1])
     assert np.all(saved["predictions"][..., 1] < saved["predictions"][..., 2])
+
+
+def test_nonzero_interval_weight_contributes_to_training_objective():
+    config = deepcopy(load_config("configs/v0.yaml"))
+    config["loss"]["interval_weight"] = 0.5
+    prediction = torch.tensor([[[[0.0, 1.0, 2.0]]]])
+    target = torch.tensor([[[1.0]]])
+    quantile_only = QuantileLoss((0.05, 0.5, 0.95))(prediction, target)
+
+    combined = build_loss(config)(prediction, target)
+
+    assert combined > quantile_only
+    torch.testing.assert_close(combined, quantile_only + torch.tensor(1.0))
+
+
+def test_resume_at_completed_budget_preserves_best_and_loader_rng(project_root):
+    set_seed(2026, deterministic=True)
+    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root)
+    config["training"]["epochs"] = 1
+    first = run_experiment(model, train_loader, val_loader, test_loader, config, bundle.scaler)
+    saved = torch.load(first["paths"]["last_checkpoint"], map_location="cpu", weights_only=False)
+    expected_generator_state = saved["train_loader_generator_state"]
+
+    resumed_config, resumed_bundle, resumed_model, resumed_train, resumed_val, resumed_test = _small_setup(project_root)
+    resumed_config["training"].update({"epochs": 1, "resume_from": str(first["paths"]["last_checkpoint"])})
+    resumed = run_experiment(
+        resumed_model, resumed_train, resumed_val, resumed_test, resumed_config, resumed_bundle.scaler
+    )
+
+    assert resumed["best_epoch"] == first["best_epoch"]
+    assert resumed["paths"]["best_checkpoint"].is_file()
+    assert torch.equal(resumed_train.generator.get_state(), expected_generator_state)
+
+
+def test_checkpoint_records_patience_best_weights_and_sampler_state(project_root):
+    set_seed(2026, deterministic=True)
+    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root)
+    config["training"]["epochs"] = 1
+    result = run_experiment(model, train_loader, val_loader, test_loader, config, bundle.scaler)
+    state = torch.load(result["paths"]["last_checkpoint"], map_location="cpu", weights_only=False)
+
+    assert state["best_epoch"] == 1
+    assert state["patience"] == 0
+    assert state["best_model_state_dict"]
+    assert torch.equal(state["train_loader_generator_state"], train_loader.generator.get_state())
 

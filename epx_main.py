@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from dataload.scaler import StandardScaler
-from losses.quantile_loss import QuantileLoss
+from losses.interval_loss import QuantileIntervalLoss
 from metrics import compute_metrics
 from utils.checkpoint import capture_rng_state, load_checkpoint, save_checkpoint
 from utils.logger import ExperimentPaths, append_jsonl, create_experiment_paths, setup_logger
@@ -148,13 +148,21 @@ def predict(
     device: torch.device,
     config: dict[str, Any],
 ) -> np.ndarray:
+    result = _evaluate(model, loader, build_loss(config), scaler, device, config)
+    return result["predictions"]
+
+
+def build_loss(config: dict[str, Any]) -> nn.Module:
     quantiles = (
         config["interval"]["lower_quantile"],
         config["interval"]["median_quantile"],
         config["interval"]["upper_quantile"],
     )
-    result = _evaluate(model, loader, QuantileLoss(quantiles), scaler, device, config)
-    return result["predictions"]
+    return QuantileIntervalLoss(
+        quantiles,
+        coverage=float(config["evaluation"]["coverage"]),
+        interval_weight=float(config["loss"]["interval_weight"]),
+    )
 
 
 def _resolve_device(config: dict[str, Any]) -> torch.device:
@@ -175,6 +183,10 @@ def _checkpoint_state(
     epoch: int,
     global_step: int,
     best_metric: float,
+    best_epoch: int,
+    patience: int,
+    best_model_state_dict: dict[str, torch.Tensor],
+    train_loader: DataLoader,
 ) -> dict[str, Any]:
     return {
         "format_version": 1,
@@ -187,8 +199,27 @@ def _checkpoint_state(
         "scaler_state_dict": scaler.state_dict(),
         "config": config,
         "best_metric": best_metric,
+        "best_epoch": best_epoch,
+        "patience": patience,
+        "best_model_state_dict": best_model_state_dict,
+        "train_loader_generator_state": (
+            train_loader.generator.get_state()
+            if train_loader.generator is not None
+            else None
+        ),
         "rng_state": capture_rng_state(),
     }
+
+
+def _clone_state_dict(model: nn.Module) -> dict[str, torch.Tensor]:
+    return {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
+
+
+def _scaler_states_match(current: dict[str, Any], saved: dict[str, Any]) -> bool:
+    return (
+        np.allclose(current["mean"], saved["mean"], rtol=0.0, atol=0.0)
+        and np.allclose(current["scale"], saved["scale"], rtol=0.0, atol=0.0)
+    )
 
 
 def _json_dump(path: Path, value: dict[str, Any]) -> None:
@@ -225,12 +256,7 @@ def run_experiment(
     )
     if config["scheduler"]["name"].lower() != "none":
         raise ValueError("V0 currently supports scheduler.name='none' only")
-    quantiles = (
-        config["interval"]["lower_quantile"],
-        config["interval"]["median_quantile"],
-        config["interval"]["upper_quantile"],
-    )
-    loss_fn = QuantileLoss(quantiles).to(device)
+    loss_fn = build_loss(config).to(device)
     best_path = paths.checkpoint_dir / "best.pt"
     last_path = paths.checkpoint_dir / "last.pt"
     best_metric = float("inf") if config["training"]["monitor_mode"] == "min" else -float("inf")
@@ -238,6 +264,7 @@ def run_experiment(
     patience = 0
     global_step = 0
     start_epoch = 1
+    best_model_state_dict = _clone_state_dict(model)
     resume_from = config["training"]["resume_from"]
     if resume_from:
         resumed = load_checkpoint(
@@ -246,11 +273,28 @@ def run_experiment(
             optimizer=optimizer,
             map_location=device,
             expected_model_name=config["model"]["name"],
+            expected_config=config,
         )
-        scaler.load_state_dict(resumed["scaler_state_dict"])
+        if not _scaler_states_match(scaler.state_dict(), resumed["scaler_state_dict"]):
+            raise ValueError("Checkpoint scaler does not match data fitted from current config")
         start_epoch = int(resumed["epoch"]) + 1
         global_step = int(resumed["global_step"])
         best_metric = float(resumed["best_metric"])
+        best_epoch = int(resumed.get("best_epoch", resumed["epoch"]))
+        patience = int(resumed.get("patience", 0))
+        best_model_state_dict = resumed.get(
+            "best_model_state_dict", _clone_state_dict(model)
+        )
+        generator_state = resumed.get("train_loader_generator_state")
+        if generator_state is not None:
+            if train_loader.generator is None:
+                raise ValueError("Checkpoint has sampler RNG state but train loader has no generator")
+            train_loader.generator.set_state(generator_state.cpu())
+        resumed_best = dict(resumed)
+        resumed_best["model_state_dict"] = best_model_state_dict
+        resumed_best["epoch"] = best_epoch
+        resumed_best["config"] = config
+        save_checkpoint(best_path, resumed_best)
 
     total_params = sum(parameter.numel() for parameter in model.parameters())
     trainable_params = sum(
@@ -281,10 +325,12 @@ def run_experiment(
             best_metric = val_loss
             best_epoch = epoch
             patience = 0
+            best_model_state_dict = _clone_state_dict(model)
             save_checkpoint(
                 best_path,
                 _checkpoint_state(
-                    model, optimizer, config, scaler, epoch, global_step, best_metric
+                    model, optimizer, config, scaler, epoch, global_step, best_metric,
+                    best_epoch, patience, best_model_state_dict, train_loader
                 ),
             )
         else:
@@ -292,7 +338,8 @@ def run_experiment(
         save_checkpoint(
             last_path,
             _checkpoint_state(
-                model, optimizer, config, scaler, epoch, global_step, best_metric
+                model, optimizer, config, scaler, epoch, global_step, best_metric,
+                best_epoch, patience, best_model_state_dict, train_loader
             ),
         )
         epoch_record = {
@@ -324,6 +371,7 @@ def run_experiment(
         optimizer=None,
         map_location=device,
         expected_model_name=config["model"]["name"],
+        expected_config=config,
         restore_rng=False,
     )
     inference_started = time.perf_counter()

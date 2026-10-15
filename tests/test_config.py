@@ -77,6 +77,9 @@ def test_v0_yaml_loads_and_validates(project_root):
         (lambda c: c["interval"].update({"lower_quantile": 0.6}), "quantile"),
         (lambda c: c["evaluation"].update({"coverage": 0.8}), "coverage"),
         (lambda c: c["interval"].update({"epsilon": 0.0}), "epsilon"),
+        (lambda c: c["loss"].update({"interval_weight": -0.1}), "interval_weight"),
+        (lambda c: c["training"].update({"monitor": "nonsense"}), "monitor"),
+        (lambda c: c["training"].update({"monitor_mode": "max"}), "monitor_mode"),
     ],
 )
 def test_invalid_config_is_rejected(mutate, message):

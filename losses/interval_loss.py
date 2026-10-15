@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import torch
+from torch import nn
+
+from losses.quantile_loss import QuantileLoss
 
 
 def interval_score_loss(
@@ -20,4 +23,25 @@ def interval_score_loss(
     below = (2.0 / alpha) * (lower - target) * (target < lower)
     above = (2.0 / alpha) * (target - upper) * (target > upper)
     return (width + below + above).mean()
+
+
+class QuantileIntervalLoss(nn.Module):
+    """Quantile loss with an optional proper interval-score contribution."""
+
+    def __init__(self, quantiles, coverage: float, interval_weight: float) -> None:
+        super().__init__()
+        if interval_weight < 0.0:
+            raise ValueError("interval_weight must be non-negative")
+        self.quantile = QuantileLoss(quantiles)
+        self.coverage = float(coverage)
+        self.interval_weight = float(interval_weight)
+
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        loss = self.quantile(prediction, target)
+        if self.interval_weight == 0.0:
+            return loss
+        interval = interval_score_loss(
+            prediction[..., 0], prediction[..., 2], target, self.coverage
+        )
+        return loss + self.interval_weight * interval
 

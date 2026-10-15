@@ -14,6 +14,43 @@ from torch import nn
 
 CHECKPOINT_FORMAT_VERSION = 1
 
+_CONTRACT_PATHS = (
+    "model",
+    "data.path",
+    "data.date_col",
+    "data.feature_cols",
+    "data.target_cols",
+    "data.features",
+    "data.seq_len",
+    "data.pred_len",
+    "data.stride",
+    "data.split",
+    "interval",
+)
+
+
+def _nested_value(mapping: dict[str, Any], path: str) -> Any:
+    value: Any = mapping
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def validate_checkpoint_contract(
+    saved_config: dict[str, Any], expected_config: dict[str, Any]
+) -> None:
+    mismatches = [
+        path
+        for path in _CONTRACT_PATHS
+        if _nested_value(saved_config, path) != _nested_value(expected_config, path)
+    ]
+    if mismatches:
+        raise ValueError(
+            "Incompatible checkpoint contract for: " + ", ".join(mismatches)
+        )
+
 
 def capture_rng_state() -> dict[str, Any]:
     return {
@@ -51,6 +88,7 @@ def load_checkpoint(
     scheduler: Any | None = None,
     map_location: str | torch.device = "cpu",
     expected_model_name: str | None = None,
+    expected_config: dict[str, Any] | None = None,
     restore_rng: bool = True,
 ) -> dict[str, Any]:
     checkpoint_path = Path(path)
@@ -66,6 +104,8 @@ def load_checkpoint(
             f"Checkpoint model name '{state.get('model_name')}' does not match "
             f"expected model name '{expected_model_name}'"
         )
+    if expected_config is not None:
+        validate_checkpoint_contract(state.get("config", {}), expected_config)
     try:
         model.load_state_dict(state["model_state_dict"], strict=True)
     except (KeyError, RuntimeError) as error:

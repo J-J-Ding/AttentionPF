@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -93,3 +94,31 @@ def test_checkpoint_model_name_can_be_validated(project_root):
 
     with pytest.raises(ValueError, match="model name"):
         load_checkpoint(path, model, map_location="cpu", expected_model_name="v1")
+
+
+def test_checkpoint_rejects_same_shape_but_incompatible_contract(project_root):
+    model = nn.Linear(3, 6)
+    optimizer = torch.optim.AdamW(model.parameters())
+    scaler = StandardScaler().fit(np.array([[0.0], [1.0]]))
+    state = _state(model, optimizer, scaler)
+    state["config"] = {
+        "model": {"name": "v0", "d_model": 8},
+        "data": {
+            "path": "datasets/raw/ETTh1.csv",
+            "feature_cols": ["A", "OT"],
+            "target_cols": ["OT"],
+            "features": "MS",
+            "seq_len": 24,
+            "pred_len": 24,
+            "split": {"type": "ratio", "train": 0.7, "val": 0.1, "test": 0.2},
+        },
+        "interval": {"lower_quantile": 0.05, "median_quantile": 0.5, "upper_quantile": 0.95, "epsilon": 1e-6},
+    }
+    path = _checkpoint_path(project_root, "bad_contract.pt")
+    save_checkpoint(path, state)
+    expected = deepcopy(state["config"])
+    expected["data"]["pred_len"] = 12
+    expected["data"]["features"] = "M"
+
+    with pytest.raises(ValueError, match="checkpoint contract"):
+        load_checkpoint(path, model, map_location="cpu", expected_config=expected)

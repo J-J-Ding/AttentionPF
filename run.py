@@ -10,6 +10,7 @@ from dataload import create_dataloaders
 from epx_main import run_experiment
 from models import MODEL_REGISTRY, build_model
 from utils.config import load_config, validate_config
+from utils.seed import set_seed
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -94,6 +95,10 @@ def execute(model_name: str, config: dict[str, Any]) -> dict[str, Any]:
             f"'{config['model']['name']}'"
         )
     validate_config(config)
+    set_seed(
+        int(config["experiment"]["seed"]),
+        bool(config["experiment"]["deterministic"]),
+    )
     bundle = create_dataloaders(config)
     model = build_model(normalized, config, bundle.input_dim, bundle.output_dim)
     result = run_experiment(
