@@ -50,3 +50,6 @@ def test_real_etth1_end_to_end_smoke(project_root):
     report = paths["report"].read_text(encoding="utf-8")
     assert "V0 ETTh1 Interval Forecast Result" in report
     assert "By Horizon" in report
+    assert paths["figures_dir"] == paths["metrics_json"].parent / "figures"
+    assert len(paths["figures"]) == 6
+    assert all(path.is_file() for path in paths["figures"].values())

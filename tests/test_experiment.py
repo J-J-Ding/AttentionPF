@@ -110,6 +110,16 @@ def test_run_experiment_saves_and_reloads_best_checkpoint(project_root):
     assert result["paths"]["metrics_json"].is_file()
     assert result["paths"]["predictions_npz"].is_file()
     assert result["paths"]["resolved_config"].is_file()
+    assert result["paths"]["figures_dir"].is_dir()
+    assert set(result["paths"]["figures"]) == {
+        "training_curves_png",
+        "training_curves_pdf",
+        "forecast_interval_png",
+        "forecast_interval_pdf",
+        "horizon_metrics_png",
+        "horizon_metrics_pdf",
+    }
+    assert all(path.is_file() for path in result["paths"]["figures"].values())
     saved = np.load(result["paths"]["predictions_npz"])
     assert saved["predictions"].shape == (16, 4, 1, 3)
     assert np.all(saved["predictions"][..., 0] < saved["predictions"][..., 1])

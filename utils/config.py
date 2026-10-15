@@ -20,6 +20,7 @@ _SCHEMA: dict[str, set[str]] = {
         "training",
         "evaluation",
         "logging",
+        "visualization",
     },
     "experiment": {"name", "seed", "device", "output_root", "deterministic"},
     "data": {
@@ -61,6 +62,14 @@ _SCHEMA: dict[str, set[str]] = {
     },
     "evaluation": {"coverage", "save_predictions"},
     "logging": {"level"},
+    "visualization": {
+        "enabled",
+        "formats",
+        "dpi",
+        "max_points",
+        "sample_index",
+        "channel_index",
+    },
 }
 
 
@@ -173,4 +182,22 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("V0 training.monitor must be 'val_loss'")
     if training["monitor_mode"] != "min":
         raise ValueError("V0 val_loss requires training.monitor_mode='min'")
+
+    visualization = config["visualization"]
+    if not isinstance(visualization["enabled"], bool):
+        raise ValueError("visualization.enabled must be a boolean")
+    formats = visualization["formats"]
+    if (
+        not isinstance(formats, list)
+        or not formats
+        or len(set(formats)) != len(formats)
+        or any(item not in {"png", "pdf"} for item in formats)
+    ):
+        raise ValueError("visualization.formats must be a non-empty unique list of png/pdf")
+    for name in ("dpi", "max_points"):
+        if not isinstance(visualization[name], int) or visualization[name] <= 0:
+            raise ValueError(f"visualization.{name} must be a positive integer")
+    for name in ("sample_index", "channel_index"):
+        if not isinstance(visualization[name], int) or visualization[name] < 0:
+            raise ValueError(f"visualization.{name} must be a non-negative integer")
 

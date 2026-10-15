@@ -57,6 +57,14 @@ def valid_config():
         },
         "evaluation": {"coverage": 0.9, "save_predictions": True},
         "logging": {"level": "INFO"},
+        "visualization": {
+            "enabled": True,
+            "formats": ["png", "pdf"],
+            "dpi": 300,
+            "max_points": 300,
+            "sample_index": 0,
+            "channel_index": 0,
+        },
     }
 
 
@@ -101,5 +109,46 @@ def test_m_targets_must_equal_features_in_order():
     config["data"]["features"] = "M"
     config["data"]["target_cols"] = deepcopy(config["data"]["feature_cols"][:-1])
     with pytest.raises(ValueError, match="target_cols.*feature_cols"):
+        validate_config(config)
+
+
+def test_visualization_config_accepts_paper_formats():
+    config = valid_config()
+    config["visualization"] = {
+        "enabled": True,
+        "formats": ["png", "pdf"],
+        "dpi": 300,
+        "max_points": 300,
+        "sample_index": 0,
+        "channel_index": 0,
+    }
+
+    validate_config(config)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("formats", ["svg"], "formats"),
+        ("formats", [], "formats"),
+        ("dpi", 0, "dpi"),
+        ("max_points", 0, "max_points"),
+        ("sample_index", -1, "sample_index"),
+        ("channel_index", -1, "channel_index"),
+    ],
+)
+def test_visualization_config_rejects_invalid_values(field, value, message):
+    config = valid_config()
+    config["visualization"] = {
+        "enabled": True,
+        "formats": ["png", "pdf"],
+        "dpi": 300,
+        "max_points": 300,
+        "sample_index": 0,
+        "channel_index": 0,
+    }
+    config["visualization"][field] = value
+
+    with pytest.raises(ValueError, match=message):
         validate_config(config)
 

@@ -890,3 +890,74 @@ V0 在本 Spec 获批后按以下顺序实现：
 - 不在模型外对预测区间排序或交换；
 - 不把每个未来步建模为独立 horizon query。
 
+## 22. 论文可视化与单次实验归档扩展
+
+### 22.1 任务定义
+
+V0 在测试集评估和结果序列化完成后自动生成论文可用图像。绘图属于统一实验框架，不进入模型 forward、不改变训练目标，也不改变统一输入输出接口。V1–V5 复用同一绘图入口。
+
+### 22.2 数据与张量约定
+
+绘图只消费已经 inverse transform 的结果：
+
+```text
+predictions: [N, P, C_out, 3]
+targets:     [N, P, C_out]
+history:     list[epoch record]
+metrics:     overall + by_horizon
+```
+
+最后一维仍固定为 `[Lower, Point, Upper]`，绘图代码不得排序、交换或修复预测区间。MS 模式的 `C_out=1`；M 模式使用配置指定的输出通道索引。
+
+### 22.3 文件改动与配置
+
+- 新增 `utils/visualization.py`，集中实现无界面、可复用的论文绘图；
+- `epx_main.py` 在当前实验测试结果写入后调用统一绘图入口；
+- `utils/config.py` 严格校验 `visualization` 配置；
+- `configs/v0.yaml` 提供默认绘图参数；
+- `requirements.txt` 增加 Matplotlib；
+- `tests/test_visualization.py` 和 smoke test 验证图像及归档路径。
+
+配置固定包含：`enabled`、`formats`、`dpi`、`max_points`、`sample_index`、`channel_index`。格式仅允许 `png` 和 `pdf`，默认同时输出 300 DPI PNG 与矢量 PDF。
+
+### 22.4 图像集合与输出位置
+
+每次运行只向自己的不可覆盖目录写入：
+
+```text
+results/<experiment_id>/figures/
+├── training_curves.png
+├── training_curves.pdf
+├── forecast_interval.png
+├── forecast_interval.pdf
+├── horizon_metrics.png
+└── horizon_metrics.pdf
+```
+
+- `training_curves`：逐 epoch 的 train loss 与 validation loss；
+- `forecast_interval`：测试集连续样本的真实值、Point、Lower/Upper 与区间阴影，最多展示 `max_points` 个点；
+- `horizon_metrics`：按 horizon 展示 MAE、RMSE、PICP、MPIW、PINAW、Coverage Error 和 Interval Score，并为 PICP 绘制 nominal coverage 参考线。
+
+绘图采用 Matplotlib `Agg` 后端，必须能在无图形界面的训练服务器运行。图例、字号、颜色、网格和留白使用统一论文风格；所有图必须关闭 figure，避免多次实验累积内存。
+
+### 22.5 执行计划与错误处理
+
+1. 先写配置与独立绘图失败测试；
+2. 实现配置校验和纯绘图函数；
+3. 写端到端归档失败测试；
+4. 在 `run_experiment` 中接入统一绘图入口；
+5. 更新依赖和 README；
+6. 运行完整测试，并用现有 ETTh1 做 smoke 验证。
+
+配置、索引、shape 或有限值不合法时必须给出明确异常，禁止静默绘制错误数据。`enabled: false` 时不得创建 `figures/`。绘图失败视为实验产物生成失败，不静默吞掉异常。
+
+### 22.6 测试计划与验收标准
+
+- 配置拒绝未知格式、非正 DPI、非正 `max_points` 和负索引；
+- 合法小数组可生成三类图的全部配置格式，文件非空；
+- forecast 图在 MS 和 M 选择通道时都使用正确 shape，越界索引明确失败；
+- NaN/Inf、错误 prediction/target shape 明确失败；
+- smoke run 的所有图都位于对应 `results/<experiment_id>/figures/`，返回路径与文件一致；
+- `enabled: false` 不创建图像目录；
+- 完整测试通过，模型输出仍严格为 `[B,P,C_out,3]` 且结构性不交叉。
+

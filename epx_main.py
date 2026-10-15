@@ -20,6 +20,7 @@ from metrics import compute_metrics
 from utils.checkpoint import capture_rng_state, load_checkpoint, save_checkpoint
 from utils.logger import ExperimentPaths, append_jsonl, create_experiment_paths, setup_logger
 from utils.seed import set_seed
+from utils.visualization import generate_experiment_figures
 
 
 def _validate_prediction(prediction: torch.Tensor, target: torch.Tensor) -> None:
@@ -410,6 +411,14 @@ def run_experiment(
         "history": history,
     }
     _json_dump(metrics_path, serializable)
+    figure_paths = generate_experiment_figures(
+        paths.result_dir,
+        history,
+        test_result["predictions"],
+        test_result["targets"],
+        test_result["metrics"],
+        config,
+    )
     logger.info("test_loss=%.6f results=%s", test_result["loss"], paths.result_dir)
     return {
         **serializable,
@@ -423,6 +432,8 @@ def run_experiment(
             "log": paths.log_path,
             "metrics_jsonl": paths.metrics_path,
             "report": paths.report_path,
+            "figures_dir": paths.result_dir / "figures",
+            "figures": figure_paths,
         },
     }
 

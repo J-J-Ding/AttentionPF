@@ -65,3 +65,11 @@ evaluation:
 logging:
   level: INFO
 
+visualization:
+  enabled: true
+  formats: [png, pdf]
+  dpi: 300
+  max_points: 300
+  sample_index: 0
+  channel_index: 0
+

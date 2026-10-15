@@ -43,7 +43,24 @@ python run.py --model v0 --config configs/v0.yaml --resume-from checkpoints/<exp
 Each run creates unique subdirectories under `logs/`, `checkpoints/`, and
 `results/`. The latest human-readable summary is written to
 `reports/V0_result.md`; each result directory retains its resolved config,
-metrics JSON, and prediction NPZ.
+metrics JSON, prediction NPZ, and publication-ready figures:
+
+```text
+results/<experiment_id>/
+├── config.resolved.yaml
+├── metrics.json
+├── predictions.npz
+└── figures/
+    ├── training_curves.png/.pdf
+    ├── forecast_interval.png/.pdf
+    └── horizon_metrics.png/.pdf
+```
+
+PNG files use the configured publication DPI (300 by default), while PDF
+files are vector graphics suitable for paper typesetting. Configure figure
+generation in `configs/v0.yaml` under `visualization`; set `enabled: false`
+to skip it. `channel_index` selects the plotted target in M mode. MS mode has
+one output channel, so its default value is `0`.
 
 ## Tests
 
