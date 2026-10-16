@@ -20,3 +20,14 @@ def test_required_packages_are_importable():
 def test_runtime_directories_exist(project_root):
     for relative_path in RUNTIME_DIRS:
         assert (project_root / relative_path).is_dir(), relative_path
+
+
+def test_v1_two_stage_files_and_spec_exist(project_root):
+    for relative_path in (
+        "specs/V1_pretrain_adapter_spec.md",
+        "models/v1_pretrain_adapter.py",
+        "configs/v1.yaml",
+        "pretrain.py",
+        "reports/V1_result.md",
+    ):
+        assert (project_root / relative_path).is_file(), relative_path

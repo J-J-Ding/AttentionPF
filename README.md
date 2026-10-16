@@ -1,8 +1,9 @@
 # AttentionPF
 
 AttentionPF is a reproducible time-series interval forecasting project. V0
-provides the shared experiment framework and an encoder-only Transformer whose
-head structurally guarantees `Lower < Point < Upper` without sorting.
+provides the shared experiment framework and an encoder-only Transformer. V1
+adds masked patch pretraining and full/QK/QKV low-rank adaptation. Every model
+structurally guarantees `Lower < Point < Upper` without sorting.
 
 ## Environment
 
@@ -62,6 +63,40 @@ generation in `configs/v0.yaml` under `visualization`; set `enabled: false`
 to skip it. `channel_index` selects the plotted target in M mode. MS mode has
 one output channel, so its default value is `0`.
 
+## Run V1
+
+V1 has two explicit stages. Stage I uses only windows from the official train
+split and internally divides them chronologically into pretrain train/validation
+subsets. Random Mask and Tail Mask reconstruct masked patches with a single
+linear head:
+
+```powershell
+python pretrain.py --config configs/v1.yaml
+```
+
+The command prints the selected `checkpoints/<pretrain_id>/best.pt` path. Put
+that exact path in `pretrain.checkpoint` in a copied V1 config before Stage II;
+forecasting refuses to start without it. Stage II always uses the shared
+`epx_main.py` training, validation, testing, metrics, checkpoint, logging, and
+figure pipeline:
+
+```powershell
+python run.py --model v1 --config configs/v1.yaml
+```
+
+Choose the ablation only through `adaptation.mode`:
+
+- `full`: V1-A, full fine-tuning without adapters.
+- `qk`: V1-B, frozen backbone with Q/K adapters.
+- `qkv`: V1-C, frozen backbone with Q/K/V adapters.
+
+Keep the same Stage I checkpoint, seed, data split, optimizer budget, and all
+non-adaptation settings when comparing these modes. Each supervised run writes
+all artifacts under one experiment-specific `results/` directory and updates
+`reports/V1_result.md`. The report records pretraining provenance, mode/rank/
+alpha, parameter counts and ratio, timing, GPU memory, overall metrics, and
+metrics by forecast horizon.
+
 ## Tests
 
 After activating `py312`:
@@ -85,5 +120,6 @@ Later versions add a model module, configuration, and one registry entry in
 `models/__init__.py`. They reuse `epx_main.py`, data loading, losses, metrics,
 logging, checkpoints, and output protocol unchanged.
 
-See `specs/V0_project_and_baseline_spec.md` for the complete V0 contract.
+See `specs/V0_project_and_baseline_spec.md` and
+`specs/V1_pretrain_adapter_spec.md` for the complete version contracts.
 
