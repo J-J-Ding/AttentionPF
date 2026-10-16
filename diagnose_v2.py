@@ -111,6 +111,14 @@ def attention_statistics(attention: np.ndarray) -> dict:
     sample_cos=[]
     sample_tv=[]
     adjacent=[]
+    group_indices=dict(zip(('short','middle','long'),np.array_split(np.arange(pred),3))) if pred>=3 else {}
+    group_distributions={}
+    for left,li in group_indices.items():
+        for right,ri in group_indices.items():
+            selection=np.ones((len(li),len(ri)),dtype=bool)
+            if left==right:
+                np.fill_diagonal(selection,False)
+            group_distributions[f'{left}:{right}']=dict(left=li,right=ri,selection=selection,cosine=[],tv=[])
     # Never compute statistics on sample-averaged vectors. Chunking bounds memory.
     for start in range(0,samples,16):
         batch=a[start:start+16]
@@ -120,6 +128,13 @@ def attention_statistics(attention: np.ndarray) -> dict:
         tv=.5*np.abs(batch[:,:,None,:]-batch[:,None,:,:]).sum(-1)
         cos_sum+=cosine.sum(0)
         tv_sum+=tv.sum(0)
+        for distribution in group_distributions.values():
+            li,ri,selection=distribution['left'],distribution['right'],distribution['selection']
+            if selection.any():
+                block_cos=cosine[:,li][:,:,ri][:,selection]
+                block_tv=tv[:,li][:,:,ri][:,selection]
+                distribution['cosine'].extend(block_cos.mean(1).tolist())
+                distribution['tv'].extend(block_tv.mean(1).tolist())
         if pred>1:
             off=cosine[:,mask]
             off_tv=tv[:,mask]
@@ -137,18 +152,9 @@ def attention_statistics(attention: np.ndarray) -> dict:
             groups.append(dict(name=label,horizons=(indices+1).tolist(),
                                entropy_normalized=_describe(normalized[:,indices]),
                                top1_mass=_describe(top1[:,indices])))
-    group_pairs={}
-    for left in groups:
-        li=np.array(left['horizons'])-1
-        for right in groups:
-            ri=np.array(right['horizons'])-1
-            block=np.ix_(li,ri)
-            selection=np.ones((len(li),len(ri)),dtype=bool)
-            if left['name']==right['name']:
-                np.fill_diagonal(selection,False)
-            group_pairs[f"{left['name']}:{right['name']}"]=dict(
-                cosine=_describe(cosine_mean[block][selection]),
-                tv=_describe(tv_mean[block][selection]))
+    group_pairs={key:dict(cosine=_describe(value['cosine']),tv=_describe(value['tv']),
+                         grain='per-sample mean over ordered group horizon pairs, excluding diagonal')
+                 for key,value in group_distributions.items()}
     result=dict(shape=list(a.shape),degenerate_single_token=tokens==1,
         entropy_nats=_describe(entropy),entropy_normalized=_describe(normalized),
         effective_tokens=_describe(np.exp(entropy)),top1_mass=_describe(top1),
@@ -221,6 +227,38 @@ def _hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def source_identity(source_file: Path) -> dict:
+    """Identify the exact diagnostic source, including uncommitted edits."""
+    source_file=source_file.resolve()
+    repository=source_file.parent
+    commit=subprocess.check_output(
+        ['git','rev-parse','HEAD'],cwd=repository,text=True).strip()
+    status=subprocess.check_output(
+        ['git','status','--porcelain','--',str(source_file)],cwd=repository,text=True)
+    return dict(source_file=str(source_file),source_file_sha256=_hash_file(source_file),
+                source_commit=commit,source_dirty=bool(status.strip()))
+
+
+def structural_explanation(v1_inventory: dict, v2_inventory: dict) -> str:
+    """Explain the trainable-parameter delta using measured inventory values."""
+    v1_categories=v1_inventory['categories']
+    v2_categories=v2_inventory['categories']
+    v1_trainable=v1_inventory['summary']['trainable']
+    v2_trainable=v2_inventory['summary']['trainable']
+    adapter1=v1_categories['Adapter']['trainable']
+    adapter2=v2_categories['Adapter']['trainable']
+    head1=v1_categories['Forecast Head']['trainable']
+    head2=v2_categories['Forecast Head']['trainable']
+    ha1=v1_categories['Horizon Attention']['trainable']
+    ha2=v2_categories['Horizon Attention']['trainable']
+    return (f'V1 trainable {v1_trainable:,} = Adapter {adapter1:,} + Head {head1:,}.'
+            f'\nV2 trainable {v2_trainable:,} = Adapter {adapter2:,} + Head {head2:,} + HA {ha2:,}.'
+            f'\nHead delta {head2-head1:+,}; HA delta {ha2-ha1:+,}; '
+            f'net delta {v2_trainable-v1_trainable:+,}.\n'
+            'No separate multilayer forecast decoder exists. Backbone/Adapter names, shapes and '
+            'trainability match; all frozen tensors match.\n')
+
+
 def run_diagnosis(v1_checkpoint: Path, v2_checkpoint: Path, output_root: Path) -> Path:
     stamp=datetime.now().strftime('%Y%m%d-%H%M%S')+'_'+uuid4().hex[:6]
     directory=output_root/'results'/f'v2_diagnosis_{stamp}'
@@ -250,10 +288,7 @@ def run_diagnosis(v1_checkpoint: Path, v2_checkpoint: Path, output_root: Path) -
     frozen_equal=all(torch.equal(shared1[n],shared2[n]) for n in shared1 if not shared1[n].requires_grad)
     if not structural_equal or not frozen_equal:
         raise ValueError('unexpected non-head backbone structure/frozen-weight difference')
-    explanation=(f"V1 trainable {i1['summary']['trainable']:,} = Adapter 18,432 + Head 260,064.\n"
-        f"V2 trainable {i2['summary']['trainable']:,} = Adapter 18,432 + Head 2,709 + HA 36,864.\n"
-        'Head delta -257,355; HA delta +36,864; net delta -220,491.\n'
-        'No separate multilayer forecast decoder exists. Backbone/Adapter names, shapes and trainability match; all frozen tensors match.\n')
+    explanation=structural_explanation(i1,i2)
     print(explanation,flush=True)
     device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     v2.to(device).eval()
@@ -274,7 +309,7 @@ def run_diagnosis(v1_checkpoint: Path, v2_checkpoint: Path, output_root: Path) -
     provenance=dict(split='validation',split_metadata=asdict(bundle.split_metadata),
         v1_checkpoint=str(v1_checkpoint.resolve()),v2_checkpoint=str(v2_checkpoint.resolve()),
         v1_sha256=_hash_file(v1_checkpoint),v2_sha256=_hash_file(v2_checkpoint),
-        source_commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+        **source_identity(Path(__file__)),
         config=c2,non_head_structure_equal=structural_equal,frozen_tensors_equal=frozen_equal)
     (directory/'provenance.json').write_text(json.dumps(provenance,indent=2)+'\n',encoding='utf-8')
     save_attention_figures(attention,statistics,directory/'figures',c2['patch']['length'],c2['patch']['stride'])

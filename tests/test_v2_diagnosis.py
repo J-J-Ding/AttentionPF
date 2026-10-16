@@ -1,4 +1,6 @@
 import math
+from pathlib import Path
+import hashlib
 
 import numpy as np
 import pytest
@@ -62,3 +64,38 @@ def test_single_token_attention_is_explicit_degeneracy():
     stats=attention_statistics(np.ones((2,3,1)))
     assert stats['degenerate_single_token'] is True
     assert stats['entropy_normalized']['mean']==0
+
+
+def test_group_pair_quantiles_preserve_sample_variation():
+    from diagnose_v2 import attention_statistics
+    a=np.array([[[1.,0.],[1.,0.],[1.,0.]],
+                [[1.,0.],[0.,1.],[1.,0.]]])
+    stats=attention_statistics(a)
+    distribution=stats['group_pairs']['short:middle']['cosine']
+    assert distribution['mean']==pytest.approx(.5)
+    assert distribution['p10']==pytest.approx(.1)
+    assert distribution['p90']==pytest.approx(.9)
+
+
+def test_source_identity_hashes_the_actual_diagnosis_script():
+    from diagnose_v2 import source_identity
+    source=Path('diagnose_v2.py').resolve()
+    identity=source_identity(source)
+    assert identity['source_file']==str(source)
+    assert identity['source_file_sha256']==hashlib.sha256(source.read_bytes()).hexdigest()
+    assert len(identity['source_commit'])==40
+    assert isinstance(identity['source_dirty'],bool)
+
+
+def test_structural_explanation_uses_actual_inventory_values():
+    from diagnose_v2 import structural_explanation
+    v1={'summary':{'trainable':100},'categories':{
+        'Adapter':{'trainable':10},'Forecast Head':{'trainable':90},
+        'Horizon Attention':{'trainable':0}}}
+    v2={'summary':{'trainable':85},'categories':{
+        'Adapter':{'trainable':10},'Forecast Head':{'trainable':20},
+        'Horizon Attention':{'trainable':55}}}
+    text=structural_explanation(v1,v2)
+    assert 'V1 trainable 100 = Adapter 10 + Head 90.' in text
+    assert 'V2 trainable 85 = Adapter 10 + Head 20 + HA 55.' in text
+    assert 'Head delta -70; HA delta +55; net delta -15.' in text
