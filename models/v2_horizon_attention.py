@@ -5,7 +5,11 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
+
+from dataload.pretrain import patchify
+from models.v1_pretrain_adapter import V1PretrainAdapter
 
 
 def _finite(tensor: Tensor, name: str) -> None:
@@ -101,3 +105,48 @@ class HorizonTemporalAttention(nn.Module):
         keys, values = self.project_history(history)
         queries = self.build_queries(self.pool_history(history), horizon_indices)
         return self.attend(queries, keys, values)
+
+
+class V2HorizonAttentionForecaster(V1PretrainAdapter):
+    """V1 adaptation backbone with horizon-specific temporal readout."""
+
+    def __init__(self, *, relation_rank: int, use_horizon_embedding: bool,
+                 cache_kv: bool, **backbone_options) -> None:
+        output_dim = backbone_options['output_dim']
+        super().__init__(**backbone_options,
+                         output_projection_factory=lambda dim, _: nn.Linear(dim, output_dim * 3))
+        self.horizon_attention = HorizonTemporalAttention(
+            d_model=self.backbone.d_model, pred_len=self.pred_len,
+            relation_rank=relation_rank, use_horizon_embedding=use_horizon_embedding)
+        self.cache_kv = cache_kv
+
+    def encode_history(self, x: Tensor) -> Tensor:
+        if x.ndim != 3 or x.shape[1:] != (self.seq_len, self.input_dim) or x.shape[0] == 0:
+            raise ValueError(f'x must be nonempty [B,{self.seq_len},{self.input_dim}]')
+        _finite(x, 'input')
+        history = self.backbone(patchify(x, self.backbone.patch_length, self.backbone.patch_stride))
+        _finite(history, 'backbone history')
+        return history
+
+    def decode_context(self, context: Tensor) -> Tensor:
+        if context.ndim != 3 or context.shape[-1] != self.backbone.d_model or min(context.shape) <= 0:
+            raise ValueError('context must be nonempty [B,P,D]')
+        _finite(context, 'horizon context')
+        raw = self.output_projection(context).reshape(*context.shape[:2], self.output_dim, 3)
+        _finite(raw, 'forecast logits')
+        point = raw[..., 0]
+        lower = point - F.softplus(raw[..., 1]) - self.epsilon
+        upper = point + F.softplus(raw[..., 2]) + self.epsilon
+        prediction = torch.stack((lower, point, upper), dim=-1)
+        _finite(prediction, 'prediction')
+        if not ((lower < point).all() and (point < upper).all()):
+            raise FloatingPointError('forecast interval is not strictly ordered at current precision')
+        return prediction
+
+    def forward_with_attention(self, x: Tensor,
+                               horizon_indices: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        context, weights = self.horizon_attention(self.encode_history(x), horizon_indices)
+        return self.decode_context(context), weights
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.forward_with_attention(x)[0]

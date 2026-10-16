@@ -6,6 +6,12 @@ PACKAGES = ("dataload", "models", "losses", "metrics", "utils")
 RUNTIME_DIRS = ("datasets/processed", "reports", "checkpoints", "logs", "results")
 
 
+def test_v2_files_exist(project_root):
+    for path in ('specs/V2_horizon_attention_spec.md', 'configs/v2.yaml',
+                 'models/v2_horizon_attention.py', 'reports/V2_result.md'):
+        assert (project_root / path).is_file()
+
+
 def test_etth1_is_stored_at_the_canonical_path(project_root, etth1_path):
     assert etth1_path.is_file()
     assert not (project_root / "ETTh1.csv").exists()

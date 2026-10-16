@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
@@ -217,6 +218,7 @@ class V1PretrainAdapter(BaseForecastModel):
         adapter_rank: int,
         adapter_alpha: float,
         adapter_dropout: float,
+        output_projection_factory: Callable[[int, int], nn.Module] | None = None,
     ) -> None:
         super().__init__()
         if output_dim <= 0 or pred_len <= 0 or epsilon <= 0:
@@ -238,7 +240,8 @@ class V1PretrainAdapter(BaseForecastModel):
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.epsilon = float(epsilon)
-        self.output_projection = nn.Linear(d_model, pred_len * output_dim * 3)
+        projection_factory = output_projection_factory or nn.Linear
+        self.output_projection = projection_factory(d_model, pred_len * output_dim * 3)
         self.adaptation_mode = ""
         self._adapter_settings = (adapter_rank, adapter_alpha, adapter_dropout)
         self.configure_adaptation(adaptation_mode)

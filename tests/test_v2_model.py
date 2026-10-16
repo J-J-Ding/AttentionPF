@@ -1,0 +1,59 @@
+import pytest
+import torch
+
+
+def tiny_model(mode='qkv', output=1, pred=4, embedding=True):
+    from models.v2_horizon_attention import V2HorizonAttentionForecaster
+    return V2HorizonAttentionForecaster(input_dim=7,output_dim=output,seq_len=16,
+        pred_len=pred,patch_length=8,patch_stride=8,d_model=8,n_heads=2,n_layers=1,
+        d_ff=16,dropout=0.,activation='gelu',epsilon=1e-6,adaptation_mode=mode,
+        adapter_rank=2,adapter_alpha=4.,adapter_dropout=0.,relation_rank=3,
+        use_horizon_embedding=embedding,cache_kv=True)
+
+
+@pytest.mark.parametrize('output,pred', [(1,4),(7,4),(1,1),(7,1)])
+def test_v2_output_shape_and_structural_intervals(output,pred):
+    model=tiny_model(output=output,pred=pred)
+    prediction=model(torch.randn(1,16,7))
+    assert prediction.shape == (1,pred,output,3)
+    assert torch.isfinite(prediction).all()
+    assert (prediction[...,0]<prediction[...,1]).all()
+    assert (prediction[...,1]<prediction[...,2]).all()
+    assert model.output_projection.out_features == output*3
+
+
+@pytest.mark.parametrize('mode', ['full','qk','qkv'])
+def test_v2_gradients_respect_adapter_boundary(mode):
+    model=tiny_model(mode)
+    model(torch.randn(2,16,7)).square().mean().backward()
+    for name,param in model.named_parameters():
+        if not param.requires_grad:
+            assert param.grad is None,name
+        else:
+            assert param.grad is not None and torch.isfinite(param.grad).all(),name
+    assert all(p.requires_grad for p in model.horizon_attention.parameters())
+    assert all(p.requires_grad for p in model.output_projection.parameters())
+
+
+def test_v2_without_embedding_has_no_horizon_bypass():
+    model=tiny_model(embedding=False).eval()
+    prediction,weights=model.forward_with_attention(torch.randn(2,16,7))
+    torch.testing.assert_close(prediction,prediction[:,:1].expand_as(prediction))
+    torch.testing.assert_close(weights,weights[:,:1].expand_as(weights))
+    assert not any('horizon_embedding' in key for key in model.state_dict())
+
+
+def test_v2_embedding_changes_horizon_predictions():
+    model=tiny_model().eval()
+    with torch.no_grad():
+        model.horizon_attention.horizon_embedding[1].add_(10)
+    prediction,weights=model.forward_with_attention(torch.randn(2,16,7))
+    assert not torch.allclose(weights[:,0],weights[:,1])
+    assert not torch.allclose(prediction[:,0],prediction[:,1])
+
+
+@pytest.mark.parametrize('x', [torch.zeros(2,16,6),torch.zeros(0,16,7),
+    torch.full((2,16,7),float('nan'))])
+def test_v2_bad_input_rejected(x):
+    with pytest.raises((ValueError,FloatingPointError)):
+        tiny_model()(x)
