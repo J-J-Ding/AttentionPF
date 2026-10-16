@@ -1,6 +1,6 @@
 # V2 Horizon-Aware Temporal Attention Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 V1 预训练 patch backbone 与 adapter 基础上，实现每个预测步独立 query 的低秩 Horizon-Aware Temporal Attention、推理 KV cache 和可复现消融报告。
 
@@ -476,31 +476,31 @@ git commit -m "feat: add controlled V2 ablations"
 - Consumes: Tasks 1-7 全部代码与测试；正式 ETTh1 数据和已提交 V1 Stage I checkpoint。
 - Produces: 通过完整回归的 V2 分支与可追溯正式消融报告。
 
-- [ ] **Step 1: 运行静态差异检查**
+- [x] **Step 1: 运行静态差异检查**
 
 Run: `git diff --check`
 
 Expected: 无 whitespace errors。确认 `rg -n "sort\(|argsort|Operator" models/v2_horizon_attention.py` 不包含预测排序或 Operator 实现；若字符串只出现在错误消息/注释，人工核对。
 
-- [ ] **Step 2: 运行非 slow 完整测试**
+- [x] **Step 2: 运行非 slow 完整测试**
 
 Run: `D:\Application\ApplicationData\anaconda3\envs\py312\python.exe -m pytest tests -m "not slow" -q -p no:cacheprovider`
 
 Expected: PASS，0 failures/errors。
 
-- [ ] **Step 3: 运行 slow/smoke 完整测试**
+- [x] **Step 3: 运行 slow/smoke 完整测试**
 
 Run: `D:\Application\ApplicationData\anaconda3\envs\py312\python.exe -m pytest tests -m slow -v -p no:cacheprovider`
 
 Expected: PASS，V0/V1/V2 smoke 均成功且测试产物仅位于 pytest tmp directory。
 
-- [ ] **Step 4: 运行完整套件**
+- [x] **Step 4: 运行完整套件**
 
 Run: `D:\Application\ApplicationData\anaconda3\envs\py312\python.exe -m pytest tests -v -p no:cacheprovider`
 
 Expected: PASS，0 failures/errors；记录通过数量和耗时。
 
-- [ ] **Step 5: 冻结正式配置并运行消融**
+- [x] **Step 5: 冻结正式配置并运行消融**
 
 确认 rank 仅依据 validation 或预先固定值选择，随后运行：
 
@@ -510,11 +510,11 @@ D:\Application\ApplicationData\anaconda3\envs\py312\python.exe v2_ablation.py --
 
 Expected: 四个独立 experiment ID 完成；每个只在 best validation checkpoint 恢复后评估 test 一次；最终报告有五行且 low-rank alias 指向标准 V2 run。
 
-- [ ] **Step 6: 审计正式产物**
+- [x] **Step 6: 审计正式产物**
 
 逐行核对 `reports/V2_result.md` 与各 `metrics.json/config.resolved.yaml/best.pt`：experiment ID、Stage I checkpoint、adaptation、relation rank、embedding/cache 开关、参数量、时间、MAE/RMSE、PICP/MPIW/PINAW/Coverage Error/Interval Score 和 by-horizon 完整一致。确认 attention map `[P,N]` 有限且每行归一化。
 
-- [ ] **Step 7: 提交正式结果**
+- [x] **Step 7: 提交正式结果**
 
 只提交源代码、配置、规范、测试、README 和汇总报告；遵守现有 `.gitignore`，不提交大体积 checkpoints/results/logs：
 
@@ -523,7 +523,7 @@ git add configs/v2.yaml reports/V2_result.md README.md
 git commit -m "exp: record formal V2 horizon ablations"
 ```
 
-- [ ] **Step 8: 最终分支验证**
+- [x] **Step 8: 最终分支验证**
 
 Run: `git status --short --branch`
 
