@@ -20,6 +20,7 @@ def _config(project_root, mode="MS"):
     config["experiment"]["device"] = "cpu"
     config["data"]["batch_size"] = 8
     config["data"]["num_workers"] = 0
+    config["data"]["pred_len"] = 24
     config["data"]["features"] = mode
     config["data"]["target_cols"] = FEATURES if mode == "M" else ["OT"]
     return config

@@ -9,10 +9,10 @@ data:
   path: datasets/raw/ETTh1.csv
   date_col: date
   feature_cols: [HUFL, HULL, MUFL, MULL, LUFL, LULL, OT]
-  target_cols: [OT]
-  features: MS
+  target_cols: [HUFL, HULL, MUFL, MULL, LUFL, LULL, OT]
+  features: M
   seq_len: 96
-  pred_len: 24
+  pred_len: 96
   stride: 1
   batch_size: 32
   num_workers: 0

@@ -20,7 +20,14 @@ def test_real_etth1_end_to_end_smoke(project_root):
         }
     )
     config["data"].update(
-        {"seq_len": 16, "pred_len": 2, "stride": 500, "batch_size": 4}
+        {
+            "seq_len": 16,
+            "pred_len": 2,
+            "stride": 500,
+            "batch_size": 4,
+            "features": "MS",
+            "target_cols": ["OT"],
+        }
     )
     config["model"].update(
         {"d_model": 8, "n_heads": 2, "n_layers": 1, "d_ff": 16, "dropout": 0.0}

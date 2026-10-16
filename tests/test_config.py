@@ -70,7 +70,9 @@ def valid_config():
 
 def test_v0_yaml_loads_and_validates(project_root):
     config = load_config(project_root / "configs" / "v0.yaml")
-    assert config["data"]["features"] == "MS"
+    assert config["data"]["features"] == "M"
+    assert config["data"]["target_cols"] == config["data"]["feature_cols"]
+    assert config["data"]["pred_len"] == 96
     assert config["data"]["feature_cols"][-1] == "OT"
     assert config["interval"]["lower_quantile"] == 0.05
 

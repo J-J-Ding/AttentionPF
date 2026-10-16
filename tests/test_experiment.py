@@ -20,7 +20,15 @@ def _small_setup(project_root):
     config["experiment"].update(
         {"name": "engine_test", "device": "cpu", "output_root": str(project_root)}
     )
-    config["data"].update({"seq_len": 24, "pred_len": 4, "batch_size": 8})
+    config["data"].update(
+        {
+            "seq_len": 24,
+            "pred_len": 4,
+            "batch_size": 8,
+            "features": "MS",
+            "target_cols": ["OT"],
+        }
+    )
     config["model"].update(
         {"d_model": 8, "n_heads": 2, "n_layers": 1, "d_ff": 16, "dropout": 0.0}
     )
