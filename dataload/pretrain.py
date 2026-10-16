@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import torch
 from torch import Tensor
+from torch.utils.data import DataLoader, Subset
+
+from dataload.dataloader import DataBundle
+from utils.seed import seed_worker
 
 
 def _validate_patch_geometry(length: int, patch_length: int, patch_stride: int) -> int:
@@ -101,3 +105,28 @@ def choose_mask(
             "random",
         )
     return sample_tail_mask(batch_size, n_patches, tail_ratio, device=device), "tail"
+
+
+def create_pretrain_loaders(
+    bundle: DataBundle, config: dict
+) -> tuple[DataLoader, DataLoader]:
+    """Chronologically split only the official train-window dataset."""
+    dataset = bundle.train_loader.dataset
+    count = len(dataset)
+    if count < 2:
+        raise ValueError("pretraining requires at least two official train windows")
+    split = int(count * (1.0 - float(config["pretrain"]["val_ratio"])))
+    split = min(count - 1, max(1, split))
+    train_dataset = Subset(dataset, range(0, split))
+    val_dataset = Subset(dataset, range(split, count))
+    generator = torch.Generator().manual_seed(int(config["experiment"]["seed"]))
+    options = {
+        "batch_size": int(config["data"]["batch_size"]),
+        "num_workers": int(config["data"]["num_workers"]),
+        "pin_memory": bool(config["data"]["pin_memory"]),
+        "worker_init_fn": seed_worker,
+    }
+    return (
+        DataLoader(train_dataset, shuffle=True, generator=generator, **options),
+        DataLoader(val_dataset, shuffle=False, **options),
+    )

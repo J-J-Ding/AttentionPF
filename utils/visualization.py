@@ -280,3 +280,27 @@ def generate_experiment_figures(
             paths,
         )
     return paths
+
+
+def generate_pretrain_figure(
+    result_dir: str | Path,
+    history: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> Path | None:
+    """Save the Stage-I convergence curve using the shared paper style."""
+    options = config["visualization"]
+    if not options["enabled"]:
+        return None
+    figures_dir = Path(result_dir) / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=False)
+    paths: dict[str, Path] = {}
+    with plt.rc_context(_RC_PARAMS):
+        _save_figure(
+            _training_figure(history),
+            figures_dir,
+            "training_curves",
+            list(options["formats"]),
+            int(options["dpi"]),
+            paths,
+        )
+    return paths[f"training_curves_{options['formats'][0]}"]

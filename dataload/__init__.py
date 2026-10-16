@@ -3,7 +3,13 @@
 from dataload.dataloader import DataBundle, SplitMetadata, create_dataloaders
 from dataload.dataset import LoadedTimeSeries, TimeSeriesWindowDataset, load_time_series
 from dataload.scaler import StandardScaler
-from dataload.pretrain import choose_mask, patchify, sample_random_mask, sample_tail_mask
+from dataload.pretrain import (
+    choose_mask,
+    create_pretrain_loaders,
+    patchify,
+    sample_random_mask,
+    sample_tail_mask,
+)
 
 __all__ = [
     "DataBundle",
@@ -17,5 +23,6 @@ __all__ = [
     "sample_random_mask",
     "sample_tail_mask",
     "choose_mask",
+    "create_pretrain_loaders",
 ]
 
