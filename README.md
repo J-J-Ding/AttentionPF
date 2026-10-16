@@ -1,5 +1,40 @@
 # AttentionPF
 
+## V2: Horizon-Aware Temporal Attention
+
+V2 loads the V1 Stage-I patch backbone and keeps its `full/qk/qkv` adaptation
+rules. Mean-pooled history plus a learned embedding for each forecast horizon
+forms queries; Q/K use a relation space (`R=32` by default), while Values stay
+`D` dimensional. A shared per-horizon head returns strictly ordered
+`[Lower, Point, Upper]` predictions with shape `[B,P,C_out,3]`.
+
+```powershell
+python run.py --model v2 --config configs/v2.yaml
+python v2_ablation.py --v1-config configs/v1.yaml --v2-config configs/v2.yaml
+```
+
+Set `pretrain.checkpoint` to a compatible V1 Stage-I best checkpoint. The checked-in
+V2 configuration matches the formal V1 ETTh1 M run (`L=P=96`, seed 2026,
+`adaptation.mode=qkv`). Full-rank QK uses `mode: full_rank, rank: 128`;
+`use_horizon_embedding: false` removes horizon identity. All other shared settings
+must match for controlled ablations. The runner validates them before training.
+
+Each run saves its resolved config, metrics, predictions and standard figures in
+`results/<experiment_id>/`. V2 additionally saves the sample-weighted mean attention
+map `[P,N]` as `attention_map.npy`. The ablation runner writes the comparison to
+`reports/V2_result.md` after all four runs succeed; the standard V2 and low-rank
+rows share one experiment ID. Individual summaries stay in each experiment's
+`report.md`, preserving `reports/V1_result.md`.
+
+KV cache is an inference optimization. In `model.eval()` and `torch.inference_mode()`,
+use `cache = model.build_inference_cache(x)` followed by
+`model.predict_from_cache(cache, horizon_indices)` with unique 1D LongTensor indices
+on the model device. A cache belongs to its history snapshot and model instance;
+rebuild it for every new input window or weight update. Cached tensors are not
+saved in checkpoints. Timing metadata compares repeated horizon chunks over a fixed
+encoded history and includes cache construction separately; it does not imply that
+chunking is faster than one vectorized all-horizon forward.
+
 AttentionPF is a reproducible time-series interval forecasting project. V0
 provides the shared experiment framework and an encoder-only Transformer. V1
 adds masked patch pretraining and full/QK/QKV low-rank adaptation. Every model
