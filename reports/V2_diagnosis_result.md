@@ -146,38 +146,38 @@ The validation mean heatmap must be read with the per-sample examples and quanti
 
 ## Sources and figures
 
-- Immutable diagnosis directory: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-172759_7e2227`
+- Immutable diagnosis directory: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-191632_cfc026`
 - V1 checkpoint: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\checkpoints\v1_horizon_baseline_seed2026_20261016-144820-008596_e622d6\best.pt`
 - V2 checkpoint: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\checkpoints\v2_horizon_low_rank_seed2026_20261016-144949-667162_06ae41\best.pt`
-- Raw per-sample tensor: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-172759_7e2227\attention_raw.npz`
-- Full statistics / pair matrices / group comparisons: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-172759_7e2227\attention_statistics.json`
-- Parameter names, shapes, flags: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-172759_7e2227\v1_parameters.json`, `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-172759_7e2227\v2_parameters.json`
-- Provenance: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-172759_7e2227\provenance.json`
+- Raw per-sample tensor: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-191632_cfc026\attention_raw.npz`
+- Full statistics / pair matrices / group comparisons: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-191632_cfc026\attention_statistics.json`
+- Parameter names, shapes, flags: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-191632_cfc026\v1_parameters.json`, `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-191632_cfc026\v2_parameters.json`
+- Provenance: `D:\DingJunjie\CodeFiles\PythonCode\Project2\AttentionPF\.worktrees\feature-v1\results\v2_diagnosis_20261016-191632_cfc026\provenance.json`
 
 ### attention_full
 
-![attention_full](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/attention_full.png)
+![attention_full](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/attention_full.png)
 
 ### attention_groups_sample_0
 
-![attention_groups_sample_0](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/attention_groups_sample_0.png)
+![attention_groups_sample_0](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/attention_groups_sample_0.png)
 
 ### attention_groups_sample_1646
 
-![attention_groups_sample_1646](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/attention_groups_sample_1646.png)
+![attention_groups_sample_1646](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/attention_groups_sample_1646.png)
 
 ### attention_groups_sample_823
 
-![attention_groups_sample_823](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/attention_groups_sample_823.png)
+![attention_groups_sample_823](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/attention_groups_sample_823.png)
 
 ### attention_groups_validation_mean
 
-![attention_groups_validation_mean](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/attention_groups_validation_mean.png)
+![attention_groups_validation_mean](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/attention_groups_validation_mean.png)
 
 ### entropy_by_horizon
 
-![entropy_by_horizon](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/entropy_by_horizon.png)
+![entropy_by_horizon](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/entropy_by_horizon.png)
 
 ### horizon_cosine
 
-![horizon_cosine](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-172759_7e2227/figures/horizon_cosine.png)
+![horizon_cosine](D:/DingJunjie/CodeFiles/PythonCode/Project2/AttentionPF/.worktrees/feature-v1/results/v2_diagnosis_20261016-191632_cfc026/figures/horizon_cosine.png)
