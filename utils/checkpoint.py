@@ -29,6 +29,7 @@ _CONTRACT_PATHS = (
     "patch",
     "adaptation",
     "pretrain.checkpoint",
+    "horizon_attention",
 )
 
 

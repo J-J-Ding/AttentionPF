@@ -8,6 +8,7 @@ from typing import Any, Callable
 from models.base_model import BaseForecastModel
 from models.v0_transformer import V0Transformer
 from models.v1_pretrain_adapter import V1PretrainAdapter
+from models.v2_horizon_attention import V2HorizonAttentionForecaster
 
 
 ModelBuilder = Callable[[dict[str, Any], int, int], BaseForecastModel]
@@ -24,7 +25,8 @@ def _build_v0(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
     )
 
 
-def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseForecastModel:
+def _build_pretrained(config: dict[str, Any], input_dim: int, output_dim: int,
+                      model_class: type[V1PretrainAdapter], **extra: Any) -> BaseForecastModel:
     checkpoint = config["pretrain"]["checkpoint"]
     if not checkpoint:
         raise ValueError("pretrain.checkpoint must explicitly name a Stage-I best checkpoint")
@@ -34,7 +36,7 @@ def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
     model_config, data, patch, adaptation = (
         config["model"], config["data"], config["patch"], config["adaptation"]
     )
-    model = V1PretrainAdapter(
+    model = model_class(
         input_dim=input_dim, output_dim=output_dim, seq_len=data["seq_len"],
         pred_len=data["pred_len"], patch_length=patch["length"],
         patch_stride=patch["stride"], d_model=model_config["d_model"],
@@ -43,6 +45,7 @@ def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
         activation=model_config["activation"], epsilon=config["interval"]["epsilon"],
         adaptation_mode=adaptation["mode"], adapter_rank=adaptation["rank"],
         adapter_alpha=adaptation["alpha"], adapter_dropout=adaptation["dropout"],
+        **extra,
     )
     model.load_pretrained_backbone(state["backbone_state_dict"])
     checkpoint_path = Path(checkpoint)
@@ -57,7 +60,20 @@ def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
     return model
 
 
-MODEL_REGISTRY: dict[str, ModelBuilder] = {"v0": _build_v0, "v1": _build_v1}
+def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseForecastModel:
+    return _build_pretrained(config, input_dim, output_dim, V1PretrainAdapter)
+
+
+def _build_v2(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseForecastModel:
+    options = config['horizon_attention']
+    model = _build_pretrained(config, input_dim, output_dim, V2HorizonAttentionForecaster,
+        relation_rank=options['rank'], use_horizon_embedding=options['use_horizon_embedding'],
+        cache_kv=options['cache_kv'])
+    model.pretrain_provenance.update({f'horizon_attention_{key}': value for key,value in options.items()})
+    return model
+
+
+MODEL_REGISTRY: dict[str, ModelBuilder] = {"v0": _build_v0, "v1": _build_v1, "v2": _build_v2}
 
 
 def build_model(
@@ -71,5 +87,5 @@ def build_model(
     return MODEL_REGISTRY[normalized](config, input_dim, output_dim)
 
 
-__all__ = ["BaseForecastModel", "MODEL_REGISTRY", "V0Transformer", "V1PretrainAdapter", "build_model"]
+__all__ = ["BaseForecastModel", "MODEL_REGISTRY", "V0Transformer", "V1PretrainAdapter", "V2HorizonAttentionForecaster", "build_model"]
 
