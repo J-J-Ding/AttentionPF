@@ -10,6 +10,7 @@ from dataload import create_dataloaders
 from epx_main import run_experiment
 from models import MODEL_REGISTRY, build_model
 from utils.config import load_config, validate_config
+from utils.checkpoint import validate_scaler_state
 from utils.seed import set_seed
 
 
@@ -123,6 +124,9 @@ def execute(model_name: str, config: dict[str, Any]) -> dict[str, Any]:
     )
     bundle = create_dataloaders(config)
     model = build_model(normalized, config, bundle.input_dim, bundle.output_dim)
+    pretrained_scaler = getattr(model, "pretrain_scaler_state", None)
+    if pretrained_scaler is not None:
+        validate_scaler_state(pretrained_scaler, bundle.scaler.state_dict())
     result = run_experiment(
         model,
         bundle.train_loader,

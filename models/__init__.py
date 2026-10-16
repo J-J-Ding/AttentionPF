@@ -53,6 +53,7 @@ def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
         "adapter_rank": adaptation["rank"],
         "adapter_alpha": float(adaptation["alpha"]),
     }
+    model.pretrain_scaler_state = state["scaler_state_dict"]
     return model
 
 

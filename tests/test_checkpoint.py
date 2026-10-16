@@ -10,7 +10,10 @@ from dataload.scaler import StandardScaler
 from utils.checkpoint import (
     capture_rng_state,
     load_checkpoint,
+    restore_rng_state,
     save_checkpoint,
+    validate_checkpoint_contract,
+    validate_scaler_state,
 )
 from utils.seed import set_seed
 
@@ -122,3 +125,31 @@ def test_checkpoint_rejects_same_shape_but_incompatible_contract(project_root):
 
     with pytest.raises(ValueError, match="checkpoint contract"):
         load_checkpoint(path, model, map_location="cpu", expected_config=expected)
+
+
+def test_v1_supervised_contract_rejects_same_shape_adapter_scaling_change():
+    saved = {
+        "model": {"name": "v1", "d_model": 8},
+        "patch": {"length": 8, "stride": 8},
+        "adaptation": {"mode": "qk", "rank": 2, "alpha": 4.0, "dropout": 0.0},
+        "pretrain": {"checkpoint": "checkpoints/pretrain/best.pt"},
+    }
+    expected = deepcopy(saved)
+    expected["adaptation"]["alpha"] = 8.0
+    with pytest.raises(ValueError, match="adaptation"):
+        validate_checkpoint_contract(saved, expected)
+
+
+def test_scaler_contract_rejects_changed_normalization_statistics():
+    saved = {"mean": np.array([1.0, 2.0]), "scale": np.array([3.0, 4.0])}
+    changed = {"mean": np.array([1.0, 2.5]), "scale": np.array([3.0, 4.0])}
+    with pytest.raises(ValueError, match="scaler"):
+        validate_scaler_state(saved, changed)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA regression")
+def test_restore_rng_state_accepts_checkpoint_tensors_mapped_to_cuda():
+    state = capture_rng_state()
+    state["torch"] = state["torch"].cuda()
+    state["cuda"] = [item.cuda() for item in state["cuda"]]
+    restore_rng_state(state)

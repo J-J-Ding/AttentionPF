@@ -26,6 +26,9 @@ _CONTRACT_PATHS = (
     "data.stride",
     "data.split",
     "interval",
+    "patch",
+    "adaptation",
+    "pretrain.checkpoint",
 )
 
 
@@ -66,7 +69,21 @@ def restore_rng_state(state: dict[str, Any]) -> None:
     np.random.set_state(state["numpy"])
     torch.set_rng_state(state["torch"].cpu())
     if state.get("cuda") is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(state["cuda"])
+        torch.cuda.set_rng_state_all([item.cpu() for item in state["cuda"]])
+
+
+def validate_scaler_state(
+    saved_state: dict[str, Any], expected_state: dict[str, Any]
+) -> None:
+    """Reject checkpoints fitted with different normalization statistics."""
+    try:
+        matches = np.array_equal(saved_state["mean"], expected_state["mean"]) and np.array_equal(
+            saved_state["scale"], expected_state["scale"]
+        )
+    except (KeyError, TypeError) as error:
+        raise ValueError("Checkpoint scaler state is incomplete") from error
+    if not matches:
+        raise ValueError("Checkpoint scaler does not match the current training data")
 
 
 def save_checkpoint(path: str | Path, state: dict[str, Any]) -> None:

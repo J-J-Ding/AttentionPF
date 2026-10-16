@@ -17,6 +17,7 @@ from dataload.pretrain import choose_mask, create_pretrain_loaders
 from losses.reconstruction_loss import masked_reconstruction_loss
 from models.v1_pretrain_adapter import V1MaskedPretrainer, V1PatchBackbone
 from utils.checkpoint import capture_rng_state, restore_rng_state, save_checkpoint
+from utils.checkpoint import validate_scaler_state
 from utils.config import load_config, validate_config
 from utils.logger import append_jsonl, create_experiment_paths, setup_logger
 from utils.seed import set_seed
@@ -24,15 +25,25 @@ from utils.visualization import generate_pretrain_figure
 
 
 PRETRAIN_CONTRACT_PATHS = (
+    "data.path",
+    "data.date_col",
     "data.feature_cols",
+    "data.target_cols",
+    "data.features",
     "data.seq_len",
+    "data.stride",
+    "data.split",
     "model.d_model",
     "model.n_heads",
     "model.n_layers",
     "model.d_ff",
+    "model.dropout",
     "model.activation",
     "patch.length",
     "patch.stride",
+    "mask.random_ratio",
+    "mask.tail_ratio",
+    "mask.random_probability",
 )
 
 
@@ -176,6 +187,16 @@ def _clone_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
     return {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
 
 
+def _backbone_from_model_state(
+    model_state: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    return {
+        name.removeprefix("backbone."): value.detach().cpu().clone()
+        for name, value in model_state.items()
+        if name.startswith("backbone.") and name != "backbone.mask_token"
+    }
+
+
 def _state(
     model: V1MaskedPretrainer,
     optimizer: torch.optim.Optimizer,
@@ -247,6 +268,7 @@ def run_pretraining(config: dict[str, Any]) -> dict[str, Any]:
         except RuntimeError as error:
             raise ValueError(f"Incompatible pretrain model state: {error}") from error
         optimizer.load_state_dict(resumed["optimizer_state_dict"])
+        validate_scaler_state(resumed["scaler_state_dict"], bundle.scaler.state_dict())
         restore_rng_state(resumed["rng_state"])
         mask_generator.set_state(resumed["mask_generator_state"].cpu())
         train_loader.generator.set_state(resumed["train_loader_generator_state"].cpu())
@@ -256,9 +278,22 @@ def run_pretraining(config: dict[str, Any]) -> dict[str, Any]:
         best_epoch = int(resumed["best_epoch"])
         patience = int(resumed["patience"])
         best_model_state = resumed["best_model_state_dict"]
-        resumed_best = dict(resumed)
-        resumed_best["model_state_dict"] = best_model_state
-        save_checkpoint(paths.checkpoint_dir / "best.pt", resumed_best)
+        saved_best = resumed.get("best_checkpoint_state")
+        if isinstance(saved_best, dict):
+            best_checkpoint_state = dict(saved_best)
+        elif int(resumed["epoch"]) == best_epoch:
+            best_checkpoint_state = dict(resumed)
+        else:
+            best_checkpoint_state = dict(resumed)
+            best_checkpoint_state["epoch"] = best_epoch
+            best_checkpoint_state["model_state_dict"] = best_model_state
+            best_checkpoint_state["backbone_state_dict"] = _backbone_from_model_state(
+                best_model_state
+            )
+        best_checkpoint_state["best_checkpoint_state"] = None
+        save_checkpoint(paths.checkpoint_dir / "best.pt", best_checkpoint_state)
+    else:
+        best_checkpoint_state = None
 
     history: list[dict[str, Any]] = []
     started = time.perf_counter()
@@ -272,16 +307,20 @@ def run_pretraining(config: dict[str, Any]) -> dict[str, Any]:
             best_epoch = epoch
             patience = 0
             best_model_state = _clone_state(model)
-            save_checkpoint(
-                paths.checkpoint_dir / "best.pt",
-                _state(model, optimizer, bundle, config, epoch, global_step, best_metric, best_epoch, patience, best_model_state, train_loader, mask_generator),
+            best_checkpoint_state = _state(
+                model, optimizer, bundle, config, epoch, global_step, best_metric,
+                best_epoch, patience, best_model_state, train_loader, mask_generator
             )
+            best_checkpoint_state["best_checkpoint_state"] = None
+            save_checkpoint(paths.checkpoint_dir / "best.pt", best_checkpoint_state)
         else:
             patience += 1
-        save_checkpoint(
-            paths.checkpoint_dir / "last.pt",
-            _state(model, optimizer, bundle, config, epoch, global_step, best_metric, best_epoch, patience, best_model_state, train_loader, mask_generator),
+        last_state = _state(
+            model, optimizer, bundle, config, epoch, global_step, best_metric,
+            best_epoch, patience, best_model_state, train_loader, mask_generator
         )
+        last_state["best_checkpoint_state"] = best_checkpoint_state
+        save_checkpoint(paths.checkpoint_dir / "last.pt", last_state)
         record = {"epoch": epoch, "train_loss": float(train_result["loss"]), "val_loss": val_loss}
         history.append(record)
         append_jsonl(paths.metrics_path, record)

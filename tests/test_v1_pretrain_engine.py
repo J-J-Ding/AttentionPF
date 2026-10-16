@@ -49,20 +49,33 @@ def test_stage_i_run_writes_complete_artifacts_and_strict_checkpoint(etth1_path,
     required = {
         "backbone_state_dict", "model_state_dict", "optimizer_state_dict", "scaler_state_dict",
         "config", "rng_state", "mask_generator_state", "train_loader_generator_state",
-        "best_metric", "best_epoch", "patience",
+        "best_metric", "best_epoch", "patience", "best_checkpoint_state",
     }
     assert required <= set(state)
     assert state["stage"] == "pretrain"
     assert result["history"][0]["train_loss"] > 0
     assert result["history"][0]["val_loss"] > 0
+    last = torch.load(paths["last_checkpoint"], map_location="cpu", weights_only=False)
+    best = last["best_checkpoint_state"]
+    exported = {
+        name.removeprefix("backbone."): value
+        for name, value in best["model_state_dict"].items()
+        if name.startswith("backbone.") and name != "backbone.mask_token"
+    }
+    assert exported.keys() == best["backbone_state_dict"].keys()
+    assert all(torch.equal(exported[name], best["backbone_state_dict"][name]) for name in exported)
 
 
 @pytest.mark.parametrize(
     "mutation,message",
     [
         (lambda c: c["data"].update({"feature_cols": list(reversed(c["data"]["feature_cols"]))}), "feature_cols"),
+        (lambda c: c["data"].update({"path": "datasets/raw/different.csv"}), "data.path"),
+        (lambda c: c["data"]["split"].update({"train": 0.6, "test": 0.3}), "data.split"),
         (lambda c: c["patch"].update({"stride": 4}), "patch.stride"),
         (lambda c: c["model"].update({"n_layers": 2}), "model.n_layers"),
+        (lambda c: c["model"].update({"dropout": 0.2}), "model.dropout"),
+        (lambda c: c["mask"].update({"random_ratio": 0.3}), "mask.random_ratio"),
     ],
 )
 def test_pretrain_checkpoint_rejects_semantic_contract_mismatch(etth1_path, tmp_path, mutation, message):
