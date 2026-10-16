@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
@@ -15,6 +16,35 @@ from models.v1_pretrain_adapter import V1PretrainAdapter
 def _finite(tensor: Tensor, name: str) -> None:
     if not torch.isfinite(tensor).all():
         raise FloatingPointError(f'{name} contains non-finite values')
+
+
+@dataclass(frozen=True)
+class HorizonKVCache:
+    """Caller-owned snapshot of one history window, never persistent model state."""
+    global_context: Tensor
+    keys: Tensor
+    values: Tensor
+    producer_versions: tuple[tuple[int, int], ...]
+    owner: object
+
+
+def _parameter_signature(module: nn.Module) -> tuple[tuple[int, int], ...]:
+    return tuple((id(p), p._version) for p in module.parameters())
+
+
+def _require_inference(module: nn.Module) -> None:
+    if module.training:
+        raise ValueError('KV cache requires eval mode')
+    if torch.is_grad_enabled():
+        raise ValueError('KV cache requires no-grad or inference mode')
+
+
+def _validate_cache_owner(module: nn.Module, cache: HorizonKVCache, owner: object) -> None:
+    _require_inference(module)
+    if not isinstance(cache, HorizonKVCache) or cache.owner is not owner:
+        raise ValueError('KV cache owner does not match this model')
+    if cache.producer_versions != _parameter_signature(module):
+        raise ValueError('stale KV cache: model parameters have changed')
 
 
 class HorizonTemporalAttention(nn.Module):
@@ -30,6 +60,7 @@ class HorizonTemporalAttention(nn.Module):
         if type(use_horizon_embedding) is not bool:
             raise ValueError('use_horizon_embedding must be boolean')
         self.d_model, self.pred_len, self.relation_rank = d_model, pred_len, relation_rank
+        self._cache_owner = object()
         self.query_projection = nn.Linear(d_model, relation_rank, bias=False)
         self.key_projection = nn.Linear(d_model, relation_rank, bias=False)
         self.value_projection = nn.Linear(d_model, d_model, bias=False)
@@ -106,6 +137,29 @@ class HorizonTemporalAttention(nn.Module):
         queries = self.build_queries(self.pool_history(history), horizon_indices)
         return self.attend(queries, keys, values)
 
+    def build_cache(self, history: Tensor) -> HorizonKVCache:
+        _require_inference(self)
+        keys, values = self.project_history(history)
+        return HorizonKVCache(self.pool_history(history), keys, values,
+                              _parameter_signature(self), self._cache_owner)
+
+    def _attend_cache(self, cache: HorizonKVCache,
+                      horizon_indices: Tensor | None) -> tuple[Tensor, Tensor]:
+        global_context = cache.global_context
+        weight = self.query_projection.weight
+        tensors = (global_context, cache.keys, cache.values)
+        if any(t.device != weight.device or t.dtype != weight.dtype for t in tensors):
+            raise ValueError('cache device and dtype must match model weights')
+        if global_context.ndim != 2 or cache.keys.ndim != 3 or global_context.shape[0] != cache.keys.shape[0]:
+            raise ValueError('cache global context and historical batch must match')
+        queries = self.build_queries(global_context, horizon_indices)
+        return self.attend(queries, cache.keys, cache.values)
+
+    def forward_from_cache(self, cache: HorizonKVCache,
+                           horizon_indices: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        _validate_cache_owner(self, cache, self._cache_owner)
+        return self._attend_cache(cache, horizon_indices)
+
 
 class V2HorizonAttentionForecaster(V1PretrainAdapter):
     """V1 adaptation backbone with horizon-specific temporal readout."""
@@ -119,6 +173,7 @@ class V2HorizonAttentionForecaster(V1PretrainAdapter):
             d_model=self.backbone.d_model, pred_len=self.pred_len,
             relation_rank=relation_rank, use_horizon_embedding=use_horizon_embedding)
         self.cache_kv = cache_kv
+        self._cache_owner = object()
 
     def encode_history(self, x: Tensor) -> Tensor:
         if x.ndim != 3 or x.shape[1:] != (self.seq_len, self.input_dim) or x.shape[0] == 0:
@@ -150,3 +205,20 @@ class V2HorizonAttentionForecaster(V1PretrainAdapter):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.forward_with_attention(x)[0]
+
+    def build_inference_cache(self, x: Tensor) -> HorizonKVCache:
+        _require_inference(self)
+        if not self.cache_kv:
+            raise ValueError('KV cache is disabled by configuration')
+        history = self.encode_history(x)
+        keys, values = self.horizon_attention.project_history(history)
+        return HorizonKVCache(self.horizon_attention.pool_history(history), keys, values,
+                              _parameter_signature(self), self._cache_owner)
+
+    def predict_from_cache(self, cache: HorizonKVCache,
+                           horizon_indices: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        _validate_cache_owner(self, cache, self._cache_owner)
+        if not self.cache_kv:
+            raise ValueError('KV cache is disabled by configuration')
+        context, weights = self.horizon_attention._attend_cache(cache, horizon_indices)
+        return self.decode_context(context), weights

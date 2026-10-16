@@ -90,3 +90,41 @@ def test_invalid_history_rejected(history):
 def test_full_rank_uses_more_parameters_than_low_rank():
     low,full=attention(8,3),attention(8,8)
     assert sum(p.numel() for p in full.parameters()) - sum(p.numel() for p in low.parameters()) == 80
+
+
+def test_attention_cache_reuses_projections_and_matches_chunks():
+    module=attention().eval()
+    history=torch.randn(2,5,8)
+    with torch.inference_mode():
+        expected,expected_weights=module(history)
+        with patch.object(module.key_projection,'forward',wraps=module.key_projection.forward) as key_spy:
+            cache=module.build_cache(history)
+            first,w1=module.forward_from_cache(cache,torch.tensor([0,1]))
+            second,w2=module.forward_from_cache(cache,torch.tensor([2,3]))
+            assert key_spy.call_count==1
+        torch.testing.assert_close(torch.cat([first,second],1),expected)
+        torch.testing.assert_close(torch.cat([w1,w2],1),expected_weights)
+
+
+def test_cache_requires_eval_no_grad_and_owner():
+    module=attention()
+    with pytest.raises(ValueError,match='eval'):
+        module.build_cache(torch.randn(2,5,8))
+    module.eval()
+    with pytest.raises(ValueError,match='grad'):
+        module.build_cache(torch.randn(2,5,8))
+    with torch.inference_mode():
+        cache=module.build_cache(torch.randn(2,5,8))
+        with pytest.raises(ValueError,match='owner'):
+            attention().eval().forward_from_cache(cache)
+
+
+def test_malformed_cache_rejected():
+    from dataclasses import replace
+    module=attention().eval()
+    with torch.inference_mode():
+        cache=module.build_cache(torch.randn(2,5,8))
+        for change in ({'keys':cache.keys[:1]}, {'values':cache.values[:,:2]},
+                       {'values':cache.values.double()}, {'keys':cache.keys[...,:1]}):
+            with pytest.raises(ValueError):
+                module.forward_from_cache(replace(cache,**change))

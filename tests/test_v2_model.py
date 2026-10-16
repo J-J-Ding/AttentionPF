@@ -57,3 +57,34 @@ def test_v2_embedding_changes_horizon_predictions():
 def test_v2_bad_input_rejected(x):
     with pytest.raises((ValueError,FloatingPointError)):
         tiny_model()(x)
+
+
+def test_forecast_cache_equivalence_and_no_persistence():
+    model=tiny_model().eval()
+    x=torch.randn(2,16,7)
+    with torch.inference_mode():
+        expected=model(x)
+        cache=model.build_inference_cache(x)
+        first,_=model.predict_from_cache(cache,torch.tensor([0,1]))
+        second,_=model.predict_from_cache(cache,torch.tensor([2,3]))
+        torch.testing.assert_close(torch.cat([first,second],1),expected)
+    assert not any('cache' in key for key in model.state_dict())
+
+
+@pytest.mark.parametrize('part', ['backbone','horizon_attention','output_projection'])
+def test_forecast_cache_rejects_updated_weights(part):
+    model=tiny_model().eval()
+    with torch.no_grad():
+        cache=model.build_inference_cache(torch.randn(2,16,7))
+        next(getattr(model,part).parameters()).add_(.1)
+        with pytest.raises(ValueError,match='stale'):
+            model.predict_from_cache(cache)
+
+
+def test_forecast_cache_rejects_reloaded_weights():
+    model=tiny_model().eval()
+    with torch.no_grad():
+        cache=model.build_inference_cache(torch.randn(2,16,7))
+        model.load_state_dict(model.state_dict())
+        with pytest.raises(ValueError,match='stale'):
+            model.predict_from_cache(cache)
