@@ -100,3 +100,16 @@ def test_report_rejects_missing_metrics_and_bad_alias(tmp_path):
     broken['V2 low-rank QK']=result_fixture('wrong','v2',tmp_path)
     with pytest.raises(ValueError,match='alias'):
         render_v2_ablation_report(broken,tmp_path/'bad.md')
+
+
+def test_report_writes_in_destination_without_secure_temp_directory(tmp_path,monkeypatch):
+    import tempfile
+    from v2_ablation import render_v2_ablation_report
+    results={label:result_fixture(str(i),'v1' if i==0 else 'v2',tmp_path)
+             for i,label in enumerate(('V1','V2','V2 without horizon embedding','V2 full-rank QK'))}
+    results['V2 low-rank QK']=results['V2']
+    def restricted_temp(*args,**kwargs):
+        raise PermissionError('secure temporary directories unavailable in sandbox')
+    monkeypatch.setattr(tempfile,'TemporaryDirectory',restricted_temp)
+    render_v2_ablation_report(results,tmp_path/'V2_result.md')
+    assert 'Overall comparison' in (tmp_path/'V2_result.md').read_text(encoding='utf-8')

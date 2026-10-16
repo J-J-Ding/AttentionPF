@@ -31,9 +31,8 @@ def _format_metric(value: Any) -> str:
     return str(value)
 
 
-def render_report(result: dict[str, Any], path: str | Path) -> None:
-    report_path = Path(path)
-    report_path.parent.mkdir(parents=True, exist_ok=True)
+def format_report(result: dict[str, Any]) -> str:
+    """Format a run summary without allocating temporary files or directories."""
     overall = result["test_metrics"]["overall"]
     peak = result["peak_gpu_memory_bytes"]
     peak_text = "N/A (CPU)" if peak is None else f"{peak / (1024 ** 2):.2f} MiB"
@@ -107,7 +106,13 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
                 interval_score=_format_metric(item.get("interval_score")),
             )
         )
-    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
+
+
+def render_report(result: dict[str, Any], path: str | Path) -> None:
+    report_path = Path(path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(format_report(result), encoding="utf-8")
 
 
 def render_v0_report(result: dict[str, Any], path: str | Path) -> None:

@@ -7,10 +7,10 @@ from copy import deepcopy
 import math
 import os
 from pathlib import Path
-import tempfile
 from typing import Any
+from uuid import uuid4
 
-from run import execute, render_report
+from run import execute, render_report, format_report
 from utils.config import load_config, validate_config
 
 
@@ -121,19 +121,22 @@ def render_v2_ablation_report(results: dict[str, dict[str, Any]], path: str | Pa
               'KV cache is an inference optimization. Timings below exclude backbone encoding and compare repeated horizon chunks over one history.',
               'Inference time in the main table includes the shared evaluation pipeline and is not a model-only kernel benchmark.', '']
     # Reuse the existing version-aware renderer for complete per-run provenance and horizons.
-    with tempfile.TemporaryDirectory(prefix='v2-report-', dir=path.parent) as scratch:
-        for index, label in enumerate(RUN_LABELS):
-            single = Path(scratch) / f'{index}.md'
-            render_report(results[label], single)
-            content = single.read_text(encoding='utf-8').splitlines()[1:]
-            lines.extend([f'## {label}: run details', '', *content, ''])
-            attention = results[label]['paths'].get('attention_map')
-            if attention:
-                lines.extend([f'- Attention map `[P,N]`: `{attention}`', ''])
-            lines.extend([f"- Metrics JSON: `{results[label]['paths']['metrics_json']}`", ''])
-        temporary = Path(scratch) / 'complete.md'
-        temporary.write_text('\n'.join(lines)+'\n', encoding='utf-8')
+    for label in RUN_LABELS:
+        content = format_report(results[label]).splitlines()[1:]
+        lines.extend([f'## {label}: run details', '', *content, ''])
+        attention = results[label]['paths'].get('attention_map')
+        if attention:
+            lines.extend([f'- Attention map `[P,N]`: `{attention}`', ''])
+        lines.extend([f"- Metrics JSON: `{results[label]['paths']['metrics_json']}`", ''])
+    # A normally created sibling inherits destination ACLs on Windows. Secure
+    # tempfile directories would otherwise carry restrictive ACLs through replace.
+    temporary = path.with_name(f'.{path.name}.{uuid4().hex}.tmp')
+    try:
+        with temporary.open('x', encoding='utf-8') as handle:
+            handle.write('\n'.join(lines).rstrip()+'\n')
         os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run_v2_ablation(v1_config: dict[str, Any], v2_config: dict[str, Any]
