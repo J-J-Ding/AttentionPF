@@ -55,3 +55,21 @@ def test_v2_requires_explicit_compatible_pretrain(etth1_path,tmp_path):
     config['pretrain']['checkpoint']=str(tmp_path/'missing.pt')
     with pytest.raises(FileNotFoundError):
         build_model('v2',config,7,1)
+
+
+def test_v2_cpu_training_repeats_with_fixed_seed(etth1_path,tmp_path):
+    import numpy as np
+    from dataload import create_dataloaders
+    from run import execute
+    config=config_and_checkpoint(etth1_path,tmp_path)
+    scaler=create_dataloaders(config).scaler.state_dict()
+    path=config['pretrain']['checkpoint']
+    state=torch.load(path,weights_only=False)
+    state['scaler_state_dict']=scaler
+    save_checkpoint(path,state)
+    config['visualization']['enabled']=False
+    first=execute('v2',config,render_single_report=False)
+    torch.manual_seed(999)
+    second=execute('v2',deepcopy(config),render_single_report=False)
+    np.testing.assert_array_equal(first['test']['predictions'],second['test']['predictions'])
+    assert first['best_val_loss']==second['best_val_loss']

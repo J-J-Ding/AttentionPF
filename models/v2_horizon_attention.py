@@ -4,14 +4,35 @@ from __future__ import annotations
 
 import math
 import time
+import weakref
 from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.optim.optimizer import register_optimizer_step_post_hook
 
 from dataload.pretrain import patchify
 from models.v1_pretrain_adapter import V1PretrainAdapter
+
+
+# Fused optimizers may bypass Tensor._version. Only track parameters that have
+# actually produced a cache; weak references keep this registry non-owning.
+_OPTIMIZER_STEPS: dict[int, tuple[weakref.ReferenceType, int]] = {}
+
+
+def _record_optimizer_step(optimizer, args, kwargs) -> None:
+    if not _OPTIMIZER_STEPS:
+        return
+    for group in optimizer.param_groups:
+        for parameter in group['params']:
+            key = id(parameter)
+            record = _OPTIMIZER_STEPS.get(key)
+            if record is not None and record[0]() is parameter:
+                _OPTIMIZER_STEPS[key] = (record[0], record[1] + 1)
+
+
+_OPTIMIZER_HOOK = register_optimizer_step_post_hook(_record_optimizer_step)
 
 
 def _finite(tensor: Tensor, name: str) -> None:
@@ -25,12 +46,21 @@ class HorizonKVCache:
     global_context: Tensor
     keys: Tensor
     values: Tensor
-    producer_versions: tuple[tuple[int, int], ...]
+    producer_versions: tuple[tuple[int, int, int], ...]
     owner: object
 
 
-def _parameter_signature(module: nn.Module) -> tuple[tuple[int, int], ...]:
-    return tuple((id(p), p._version) for p in module.parameters())
+def _parameter_signature(module: nn.Module) -> tuple[tuple[int, int, int], ...]:
+    signature = []
+    for parameter in module.parameters():
+        key = id(parameter)
+        record = _OPTIMIZER_STEPS.get(key)
+        if record is None or record[0]() is not parameter:
+            reference = weakref.ref(parameter, lambda ref, key=key: _OPTIMIZER_STEPS.pop(key, None))
+            record = (reference, 0)
+            _OPTIMIZER_STEPS[key] = record
+        signature.append((key, parameter._version, record[1]))
+    return tuple(signature)
 
 
 def _require_inference(module: nn.Module) -> None:

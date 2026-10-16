@@ -88,3 +88,34 @@ def test_forecast_cache_rejects_reloaded_weights():
         model.load_state_dict(model.state_dict())
         with pytest.raises(ValueError,match='stale'):
             model.predict_from_cache(cache)
+
+
+@pytest.mark.parametrize('fused', [False,True])
+def test_cache_invalidated_by_real_adamw_step(fused):
+    model=tiny_model().eval()
+    optimizer=torch.optim.AdamW(model.parameters(),lr=.01,fused=fused)
+    x=torch.randn(2,16,7)
+    with torch.no_grad():
+        cache=model.build_inference_cache(x)
+    model(x).square().mean().backward()
+    optimizer.step()
+    with torch.no_grad():
+        with pytest.raises(ValueError,match='stale'):
+            model.predict_from_cache(cache)
+        fresh=model.build_inference_cache(x)
+        prediction,_=model.predict_from_cache(fresh)
+        torch.testing.assert_close(prediction,model(x))
+
+
+def test_unrelated_optimizer_does_not_invalidate_cache():
+    model=tiny_model().eval()
+    parameter=torch.nn.Parameter(torch.ones(2))
+    optimizer=torch.optim.AdamW([parameter],fused=True)
+    x=torch.randn(2,16,7)
+    with torch.no_grad():
+        cache=model.build_inference_cache(x)
+    parameter.square().sum().backward()
+    optimizer.step()
+    with torch.no_grad():
+        prediction,_=model.predict_from_cache(cache)
+        torch.testing.assert_close(prediction,model(x))
