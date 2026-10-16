@@ -9,6 +9,7 @@ from models.base_model import BaseForecastModel
 from models.v0_transformer import V0Transformer
 from models.v1_pretrain_adapter import V1PretrainAdapter
 from models.v2_horizon_attention import V2HorizonAttentionForecaster
+from models.v2_fair_horizon import V1HorizonAttention
 
 
 ModelBuilder = Callable[[dict[str, Any], int, int], BaseForecastModel]
@@ -73,7 +74,18 @@ def _build_v2(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
     return model
 
 
-MODEL_REGISTRY: dict[str, ModelBuilder] = {"v0": _build_v0, "v1": _build_v1, "v2": _build_v2}
+def _build_v2_fair(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseForecastModel:
+    options=config['horizon_attention']
+    model=_build_pretrained(config,input_dim,output_dim,V1HorizonAttention,
+        relation_rank=options['rank'],use_horizon_embedding=options['use_horizon_embedding'],
+        cache_kv=options['cache_kv'])
+    model.pretrain_provenance.update({f'horizon_attention_{key}':value for key,value in options.items()})
+    model.pretrain_provenance['forecast_head_type']='original_v1_blockwise'
+    return model
+
+
+MODEL_REGISTRY: dict[str, ModelBuilder] = {"v0": _build_v0, "v1": _build_v1, "v2": _build_v2,
+                                        "v2_fair": _build_v2_fair}
 
 
 def build_model(

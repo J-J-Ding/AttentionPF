@@ -137,8 +137,12 @@ def validate_config(config: dict[str, Any]) -> None:
         validate_v1_config(config)
     elif name == "v2":
         validate_v2_config(config)
+    elif name == "v2_fair":
+        validate_v2_config(config)
+        if config['horizon_attention']['cache_kv']:
+            raise ValueError('v2_fair requires horizon_attention.cache_kv=false')
     else:
-        raise ValueError("model.name must be 'v0', 'v1' or 'v2'")
+        raise ValueError("model.name must be 'v0', 'v1', 'v2' or 'v2_fair'")
 
 
 def _validate_shared_config(config: dict[str, Any]) -> None:

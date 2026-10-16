@@ -1,5 +1,29 @@
 # AttentionPF
 
+## V2 diagnosis and capacity-controlled HA ablation
+
+```powershell
+python diagnose_v2.py
+python v2_fair_ablation.py --config-dir configs/diagnosis
+```
+
+The original V1 to V2 comparison changed both attention readout and forecast-head
+capacity: V1's `Linear(D,P*C*3)` has 260,064 parameters, while current V2's shared
+`Linear(D,C*3)` has 2,709. The encoder adapters are unchanged at 18,432 parameters.
+Consequently the old comparison does not isolate the effect of adding HA.
+
+The diagnosis command prints actual total/trainable/frozen inventories, records
+raw validation attention `[S,P,N]`, and saves per-sample cosine, entropy, TV and
+short/middle/long heatmaps in a unique `results/v2_diagnosis_*/` directory.
+`reports/V2_diagnosis_result.md` links all source artifacts and figures.
+
+The separate `v2_fair` model preserves the complete V1 forecast head and applies
+each horizon context to its original head weight block. The fair runner compares
+V1, full-rank HA, rank64 HA and rank32 HA. It rejects unequal non-HA configurations
+or initial parameter name/shape/trainability/value hashes before training, retains
+the control manifest and produces `reports/V2_fair_ablation_result.md`. These
+experiments preserve current V1/V2 models and their original reports.
+
 ## V2: Horizon-Aware Temporal Attention
 
 V2 loads the V1 Stage-I patch backbone and keeps its `full/qk/qkv` adaptation

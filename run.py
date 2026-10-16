@@ -56,7 +56,7 @@ def format_report(result: dict[str, Any]) -> str:
         f"- Checkpoint: `{result['paths']['best_checkpoint']}`",
         f"- Resolved config: `{result['paths']['resolved_config']}`",
     ]
-    if model_name in {"V1", "V2"}:
+    if model_name in {"V1", "V2", "V2_FAIR"}:
         lines.extend(
             [
                 f"- Pretrain checkpoint ID: `{result['pretrain_checkpoint_id']}`",
@@ -66,13 +66,18 @@ def format_report(result: dict[str, Any]) -> str:
                 f"- Adapter alpha: {result['adapter_alpha']}",
             ]
         )
-    if model_name == 'V2':
+    if model_name in {'V2','V2_FAIR'}:
         lines.extend([
             f"- Horizon attention mode: `{result['horizon_attention_mode']}`",
             f"- Horizon attention rank: {result['horizon_attention_rank']}",
             f"- Horizon embedding: {result['horizon_attention_use_horizon_embedding']}",
             f"- KV cache enabled: {result['horizon_attention_cache_kv']}",
             f"- KV cache benchmark (seconds; readout only): `{result.get('kv_cache_benchmark')}`",
+        ])
+    if model_name=='V2_FAIR':
+        lines.extend([
+            f"- Forecast head: `{result['forecast_head_type']}`",
+            f"- Non-HA initial parameter hash: `{result.get('fair_non_attention_sha256','not recorded')}`",
         ])
     lines.extend([
         "",
