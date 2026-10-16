@@ -8,13 +8,13 @@ from utils.logger import append_jsonl, create_experiment_paths, setup_logger
 from utils.seed import set_seed
 
 
-def _path_config(project_root):
+def _path_config(tmp_path):
     return {
         "experiment": {
             "name": "utils_test",
             "seed": 7,
             "device": "cpu",
-            "output_root": str(project_root),
+            "output_root": str(tmp_path),
             "deterministic": True,
         },
         "logging": {"level": "INFO"},
@@ -37,21 +37,21 @@ def test_deterministic_seed_configures_cublas_before_cuda(monkeypatch):
     assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
 
 
-def test_experiment_paths_are_unique_and_scoped(project_root):
-    first = create_experiment_paths(_path_config(project_root))
-    second = create_experiment_paths(_path_config(project_root))
+def test_experiment_paths_are_unique_and_scoped(tmp_path):
+    first = create_experiment_paths(_path_config(tmp_path))
+    second = create_experiment_paths(_path_config(tmp_path))
 
     assert first.experiment_id != second.experiment_id
-    assert first.log_dir.parent == project_root / "logs"
-    assert first.checkpoint_dir.parent == project_root / "checkpoints"
-    assert first.result_dir.parent == project_root / "results"
+    assert first.log_dir.parent == tmp_path / "logs"
+    assert first.checkpoint_dir.parent == tmp_path / "checkpoints"
+    assert first.result_dir.parent == tmp_path / "results"
     assert first.log_dir.is_dir()
     assert first.checkpoint_dir.is_dir()
     assert first.result_dir.is_dir()
 
 
-def test_logger_setup_does_not_duplicate_handlers_and_jsonl_is_valid(project_root):
-    paths = create_experiment_paths(_path_config(project_root))
+def test_logger_setup_does_not_duplicate_handlers_and_jsonl_is_valid(tmp_path):
+    paths = create_experiment_paths(_path_config(tmp_path))
     first = setup_logger(paths, level="INFO")
     second = setup_logger(paths, level="INFO")
 

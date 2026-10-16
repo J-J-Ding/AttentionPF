@@ -83,17 +83,35 @@ def _evaluate(
     scaler: StandardScaler,
     device: torch.device,
     config: dict[str, Any],
+    *, collect_attention: bool = False,
 ) -> dict[str, Any]:
     model.eval()
     total_loss = 0.0
     total_elements = 0
     prediction_batches: list[np.ndarray] = []
     target_batches: list[np.ndarray] = []
+    attention_sum = None
+    attention_samples = 0
+    attention_fn = getattr(model, 'forward_with_attention', None) if collect_attention else None
     with torch.inference_mode():
         for x, target in loader:
             x = x.to(device)
             target = target.to(device)
-            prediction = model(x)
+            if callable(attention_fn):
+                prediction, weights = attention_fn(x)
+                if (weights.ndim != 3 or weights.shape[:2] != target.shape[:2]
+                        or weights.shape[2] == 0):
+                    raise ValueError('attention must have shape [B,P,N]')
+                if not torch.isfinite(weights).all():
+                    raise FloatingPointError('non-finite attention')
+                if (weights < 0).any() or not torch.allclose(
+                    weights.sum(-1), torch.ones_like(weights[..., 0]), atol=1e-5):
+                    raise ValueError('attention must be nonnegative and normalized along N')
+                batch_sum = weights.double().sum(0).cpu().numpy()
+                attention_sum = batch_sum if attention_sum is None else attention_sum + batch_sum
+                attention_samples += x.shape[0]
+            else:
+                prediction = model(x)
             _validate_prediction(prediction, target)
             loss = loss_fn(prediction, target)
             if not torch.isfinite(loss):
@@ -111,13 +129,16 @@ def _evaluate(
     predictions = scaler.inverse_transform(scaled_predictions, channels)
     targets = scaler.inverse_transform(scaled_targets, channels)
     metrics = compute_metrics(predictions, targets, config["evaluation"]["coverage"])
-    return {
+    result = {
         "loss": total_loss / total_elements,
         "elements": total_elements,
         "metrics": metrics,
         "predictions": predictions,
         "targets": targets,
     }
+    if attention_sum is not None:
+        result['attention_map'] = attention_sum / attention_samples
+    return result
 
 
 def validate(
@@ -139,7 +160,7 @@ def test(
     device: torch.device,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    return _evaluate(model, loader, loss_fn, scaler, device, config)
+    return _evaluate(model, loader, loss_fn, scaler, device, config, collect_attention=True)
 
 
 def predict(
@@ -386,8 +407,12 @@ def run_experiment(
         expected_config=config,
         restore_rng=False,
     )
+    if device.type == 'cuda':
+        torch.cuda.synchronize(device)
     inference_started = time.perf_counter()
     test_result = test(model, test_loader, loss_fn, scaler, device, config)
+    if device.type == 'cuda':
+        torch.cuda.synchronize(device)
     inference_seconds = time.perf_counter() - inference_started
     n_predictions = len(test_result["predictions"])
     peak_gpu_memory = (
@@ -401,6 +426,17 @@ def run_experiment(
             targets=test_result["targets"],
         )
     metrics_path = paths.result_dir / "metrics.json"
+    diagnostic_paths = {}
+    if 'attention_map' in test_result:
+        attention_path = paths.result_dir / 'attention_map.npy'
+        np.save(attention_path, test_result['attention_map'])
+        diagnostic_paths['attention_map'] = attention_path
+    cache_benchmark = None
+    benchmark_fn = getattr(model, 'benchmark_kv_cache', None)
+    if callable(benchmark_fn) and getattr(model, 'cache_kv', False):
+        x, _ = next(iter(test_loader))
+        chunks = list(torch.arange(config['data']['pred_len'], device=device).split(24))
+        cache_benchmark = benchmark_fn(x.to(device), chunks, repeats=5)
     serializable = {
         "experiment_id": paths.experiment_id,
         "best_epoch": best_epoch,
@@ -422,6 +458,8 @@ def run_experiment(
         },
         "history": history,
     }
+    if callable(benchmark_fn):
+        serializable['kv_cache_benchmark'] = cache_benchmark
     _json_dump(metrics_path, serializable)
     figure_paths = generate_experiment_figures(
         paths.result_dir,
@@ -446,6 +484,7 @@ def run_experiment(
             "report": paths.report_path,
             "figures_dir": paths.result_dir / "figures",
             "figures": figure_paths,
+            **diagnostic_paths,
         },
     }
 

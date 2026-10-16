@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 
 import torch
@@ -222,3 +223,41 @@ class V2HorizonAttentionForecaster(V1PretrainAdapter):
             raise ValueError('KV cache is disabled by configuration')
         context, weights = self.horizon_attention._attend_cache(cache, horizon_indices)
         return self.decode_context(context), weights
+
+    @torch.inference_mode()
+    def benchmark_kv_cache(self, x: Tensor, horizon_chunks: list[Tensor],
+                           repeats: int = 5) -> dict[str, float | int]:
+        """Measure repeated chunked readouts over one fixed history; exclude backbone."""
+        _require_inference(self)
+        if not self.cache_kv or type(repeats) is not int or repeats < 1 or not horizon_chunks:
+            raise ValueError('cache benchmark needs enabled cache, chunks and positive repeats')
+        history = self.encode_history(x)
+        module = self.horizon_attention
+        def sync():
+            if x.device.type == 'cuda':
+                torch.cuda.synchronize(x.device)
+        cache = module.build_cache(history)
+        for indices in horizon_chunks:
+            expected, _ = module(history, indices)
+            actual, _ = module.forward_from_cache(cache, indices)
+            torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+        def measure(fn):
+            sync()
+            started = time.perf_counter()
+            for _ in range(repeats):
+                fn()
+            sync()
+            return (time.perf_counter() - started) / repeats
+        build_seconds = measure(lambda: module.build_cache(history))
+        def uncached():
+            for indices in horizon_chunks:
+                context, _ = module(history, indices)
+                self.decode_context(context)
+        def cached():
+            for indices in horizon_chunks:
+                context, _ = module.forward_from_cache(cache, indices)
+                self.decode_context(context)
+        return dict(cache_build_seconds=build_seconds,
+                    uncached_chunk_seconds=measure(uncached),
+                    cached_chunk_seconds=measure(cached), chunks=len(horizon_chunks),
+                    repeats=repeats)

@@ -57,7 +57,7 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
         f"- Checkpoint: `{result['paths']['best_checkpoint']}`",
         f"- Resolved config: `{result['paths']['resolved_config']}`",
     ]
-    if model_name == "V1":
+    if model_name in {"V1", "V2"}:
         lines.extend(
             [
                 f"- Pretrain checkpoint ID: `{result['pretrain_checkpoint_id']}`",
@@ -67,6 +67,14 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
                 f"- Adapter alpha: {result['adapter_alpha']}",
             ]
         )
+    if model_name == 'V2':
+        lines.extend([
+            f"- Horizon attention mode: `{result['horizon_attention_mode']}`",
+            f"- Horizon attention rank: {result['horizon_attention_rank']}",
+            f"- Horizon embedding: {result['horizon_attention_use_horizon_embedding']}",
+            f"- KV cache enabled: {result['horizon_attention_cache_kv']}",
+            f"- KV cache benchmark (seconds; readout only): `{result.get('kv_cache_benchmark')}`",
+        ])
     lines.extend([
         "",
         "## Overall Metrics",
@@ -107,7 +115,8 @@ def render_v0_report(result: dict[str, Any], path: str | Path) -> None:
     render_report(result, path)
 
 
-def execute(model_name: str, config: dict[str, Any]) -> dict[str, Any]:
+def execute(model_name: str, config: dict[str, Any], *,
+            render_single_report: bool = True) -> dict[str, Any]:
     normalized = model_name.lower()
     if normalized not in MODEL_REGISTRY:
         available = ", ".join(sorted(MODEL_REGISTRY))
@@ -135,7 +144,8 @@ def execute(model_name: str, config: dict[str, Any]) -> dict[str, Any]:
         config,
         bundle.scaler,
     )
-    render_v0_report(result, result["paths"]["report"])
+    if render_single_report:
+        render_v0_report(result, result["paths"]["report"])
     return result
 
 

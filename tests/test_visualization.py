@@ -7,7 +7,7 @@ import pytest
 from utils.visualization import generate_experiment_figures
 
 
-def _inputs(project_root: Path):
+def _inputs(tmp_path: Path):
     n_samples, pred_len, channels = 12, 4, 2
     targets = np.arange(n_samples * pred_len * channels, dtype=np.float32).reshape(
         n_samples, pred_len, channels
@@ -44,12 +44,12 @@ def _inputs(project_root: Path):
             "channel_index": 1,
         },
     }
-    result_dir = project_root / "results" / f"visualization_test_{uuid4().hex}"
+    result_dir = tmp_path / "results" / f"visualization_test_{uuid4().hex}"
     return result_dir, history, predictions, targets, metrics, config
 
 
-def test_generate_experiment_figures_writes_three_publication_figures(project_root):
-    args = _inputs(project_root)
+def test_generate_experiment_figures_writes_three_publication_figures(tmp_path):
+    args = _inputs(tmp_path)
 
     paths = generate_experiment_figures(*args)
 
@@ -69,8 +69,8 @@ def test_generate_experiment_figures_writes_three_publication_figures(project_ro
     assert paths["training_curves_pdf"].read_bytes().startswith(b"%PDF")
 
 
-def test_generate_experiment_figures_rejects_bad_shapes_and_channel(project_root):
-    result_dir, history, predictions, targets, metrics, config = _inputs(project_root)
+def test_generate_experiment_figures_rejects_bad_shapes_and_channel(tmp_path):
+    result_dir, history, predictions, targets, metrics, config = _inputs(tmp_path)
     with pytest.raises(ValueError, match="prediction.*shape"):
         generate_experiment_figures(
             result_dir, history, predictions[..., 1], targets, metrics, config
@@ -83,8 +83,8 @@ def test_generate_experiment_figures_rejects_bad_shapes_and_channel(project_root
         )
 
 
-def test_disabled_visualization_creates_no_directory(project_root):
-    args = list(_inputs(project_root))
+def test_disabled_visualization_creates_no_directory(tmp_path):
+    args = list(_inputs(tmp_path))
     args[-1]["visualization"]["enabled"] = False
 
     paths = generate_experiment_figures(*args)

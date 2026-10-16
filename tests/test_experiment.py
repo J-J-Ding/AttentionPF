@@ -15,10 +15,10 @@ from utils.config import load_config
 from utils.seed import set_seed
 
 
-def _small_setup(project_root):
+def _small_setup(project_root, output_root):
     config = deepcopy(load_config(project_root / "configs/v0.yaml"))
     config["experiment"].update(
-        {"name": "engine_test", "device": "cpu", "output_root": str(project_root)}
+        {"name": "engine_test", "device": "cpu", "output_root": str(output_root)}
     )
     config["data"].update({"seq_len": 24, "pred_len": 4, "batch_size": 8})
     config["model"].update(
@@ -40,8 +40,8 @@ def _small_setup(project_root):
     return config, bundle, model, subset_loader(bundle.train_loader, training=True), subset_loader(bundle.val_loader), subset_loader(bundle.test_loader)
 
 
-def test_train_updates_parameters_and_returns_element_weighted_loss(project_root):
-    config, _, model, train_loader, _, _ = _small_setup(project_root)
+def test_train_updates_parameters_and_returns_element_weighted_loss(project_root, tmp_path):
+    config, _, model, train_loader, _, _ = _small_setup(project_root, tmp_path)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
     loss_fn = QuantileLoss((0.05, 0.5, 0.95))
     before = [parameter.detach().clone() for parameter in model.parameters()]
@@ -53,8 +53,8 @@ def test_train_updates_parameters_and_returns_element_weighted_loss(project_root
     assert any(not torch.equal(old, new) for old, new in zip(before, model.parameters()))
 
 
-def test_validate_and_predict_do_not_update_model_and_use_original_scale(project_root):
-    config, bundle, model, _, val_loader, _ = _small_setup(project_root)
+def test_validate_and_predict_do_not_update_model_and_use_original_scale(project_root, tmp_path):
+    config, bundle, model, _, val_loader, _ = _small_setup(project_root, tmp_path)
     loss_fn = QuantileLoss((0.05, 0.5, 0.95))
     before = [parameter.detach().clone() for parameter in model.parameters()]
 
@@ -74,8 +74,8 @@ class _NonFiniteModel(BaseForecastModel):
         return torch.full((x.shape[0], 4, 1, 3), float("nan"), device=x.device, requires_grad=True)
 
 
-def test_training_fails_fast_on_nonfinite_predictions(project_root):
-    config, _, _, train_loader, _, _ = _small_setup(project_root)
+def test_training_fails_fast_on_nonfinite_predictions(project_root, tmp_path):
+    config, _, _, train_loader, _, _ = _small_setup(project_root, tmp_path)
     model = _NonFiniteModel()
     dummy_parameter = nn.Parameter(torch.tensor(0.0))
     optimizer = torch.optim.AdamW([dummy_parameter])
@@ -90,9 +90,9 @@ def test_training_fails_fast_on_nonfinite_predictions(project_root):
         )
 
 
-def test_run_experiment_saves_and_reloads_best_checkpoint(project_root):
+def test_run_experiment_saves_and_reloads_best_checkpoint(project_root, tmp_path):
     set_seed(2026, deterministic=True)
-    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root)
+    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root, tmp_path)
 
     result = run_experiment(
         model,
@@ -139,15 +139,15 @@ def test_nonzero_interval_weight_contributes_to_training_objective():
     torch.testing.assert_close(combined, quantile_only + torch.tensor(1.0))
 
 
-def test_resume_at_completed_budget_preserves_best_and_loader_rng(project_root):
+def test_resume_at_completed_budget_preserves_best_and_loader_rng(project_root, tmp_path):
     set_seed(2026, deterministic=True)
-    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root)
+    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root, tmp_path)
     config["training"]["epochs"] = 1
     first = run_experiment(model, train_loader, val_loader, test_loader, config, bundle.scaler)
     saved = torch.load(first["paths"]["last_checkpoint"], map_location="cpu", weights_only=False)
     expected_generator_state = saved["train_loader_generator_state"]
 
-    resumed_config, resumed_bundle, resumed_model, resumed_train, resumed_val, resumed_test = _small_setup(project_root)
+    resumed_config, resumed_bundle, resumed_model, resumed_train, resumed_val, resumed_test = _small_setup(project_root, tmp_path)
     resumed_config["training"].update({"epochs": 1, "resume_from": str(first["paths"]["last_checkpoint"])})
     resumed = run_experiment(
         resumed_model, resumed_train, resumed_val, resumed_test, resumed_config, resumed_bundle.scaler
@@ -158,9 +158,9 @@ def test_resume_at_completed_budget_preserves_best_and_loader_rng(project_root):
     assert torch.equal(resumed_train.generator.get_state(), expected_generator_state)
 
 
-def test_checkpoint_records_patience_best_weights_and_sampler_state(project_root):
+def test_checkpoint_records_patience_best_weights_and_sampler_state(project_root, tmp_path):
     set_seed(2026, deterministic=True)
-    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root)
+    config, bundle, model, train_loader, val_loader, test_loader = _small_setup(project_root, tmp_path)
     config["training"]["epochs"] = 1
     result = run_experiment(model, train_loader, val_loader, test_loader, config, bundle.scaler)
     state = torch.load(result["paths"]["last_checkpoint"], map_location="cpu", weights_only=False)
