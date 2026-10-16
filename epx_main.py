@@ -301,6 +301,17 @@ def run_experiment(
     trainable_params = sum(
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
+    summary_fn = getattr(model, "parameter_summary", None)
+    parameter_summary = (
+        summary_fn()
+        if callable(summary_fn)
+        else {
+            "total_params": total_params,
+            "trainable_params": trainable_params,
+            "trainable_ratio": trainable_params / total_params if total_params else 0.0,
+        }
+    )
+    provenance = dict(getattr(model, "pretrain_provenance", {}))
     logger.info(
         "experiment=%s device=%s seed=%d total_params=%d trainable_params=%d",
         paths.experiment_id,
@@ -396,8 +407,9 @@ def run_experiment(
         "best_val_loss": best_metric,
         "test_loss": float(test_result["loss"]),
         "test_metrics": test_result["metrics"],
-        "total_params": total_params,
-        "trainable_params": trainable_params,
+        "model_name": config["model"]["name"],
+        **parameter_summary,
+        **provenance,
         "train_seconds": train_seconds,
         "inference_seconds": inference_seconds,
         "inference_latency_seconds": inference_seconds / max(n_predictions, 1),

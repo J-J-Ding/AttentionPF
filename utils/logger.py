@@ -45,7 +45,9 @@ def create_experiment_paths(config: dict[str, Any]) -> ExperimentPaths:
         log_dir=log_dir,
         checkpoint_dir=checkpoint_dir,
         result_dir=result_dir,
-        report_path=root / "reports" / "V0_result.md",
+        report_path=root
+        / "reports"
+        / f"{str(config.get('model', {}).get('name', 'v0')).upper()}_result.md",
     )
 
 

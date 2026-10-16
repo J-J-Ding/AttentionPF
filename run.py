@@ -30,26 +30,43 @@ def _format_metric(value: Any) -> str:
     return str(value)
 
 
-def render_v0_report(result: dict[str, Any], path: str | Path) -> None:
+def render_report(result: dict[str, Any], path: str | Path) -> None:
     report_path = Path(path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     overall = result["test_metrics"]["overall"]
     peak = result["peak_gpu_memory_bytes"]
     peak_text = "N/A (CPU)" if peak is None else f"{peak / (1024 ** 2):.2f} MiB"
+    model_name = str(result.get("model_name", "v0")).upper()
+    ratio = result.get(
+        "trainable_ratio", result["trainable_params"] / result["total_params"]
+    )
     lines = [
-        "# V0 ETTh1 Interval Forecast Result",
+        f"# {model_name} ETTh1 Interval Forecast Result",
         "",
         f"- Experiment ID: `{result['experiment_id']}`",
         f"- Best epoch: {result['best_epoch']}",
         f"- Best validation loss: {_format_metric(result['best_val_loss'])}",
         f"- Total parameters: {result['total_params']}",
         f"- Trainable parameters: {result['trainable_params']}",
+        f"- Trainable ratio: {ratio:.6f}",
         f"- Peak GPU memory: {peak_text}",
         f"- Train time: {result['train_seconds']:.3f} s",
         f"- Inference time: {result['inference_seconds']:.3f} s",
         f"- Inference latency: {result['inference_latency_seconds']:.6f} s/sample",
         f"- Checkpoint: `{result['paths']['best_checkpoint']}`",
         f"- Resolved config: `{result['paths']['resolved_config']}`",
+    ]
+    if model_name == "V1":
+        lines.extend(
+            [
+                f"- Pretrain checkpoint ID: `{result['pretrain_checkpoint_id']}`",
+                f"- Pretrain checkpoint: `{result['pretrain_checkpoint']}`",
+                f"- Adaptation mode: `{result['adaptation_mode']}`",
+                f"- Adapter rank: {result['adapter_rank']}",
+                f"- Adapter alpha: {result['adapter_alpha']}",
+            ]
+        )
+    lines.extend([
         "",
         "## Overall Metrics",
         "",
@@ -67,7 +84,7 @@ def render_v0_report(result: dict[str, Any], path: str | Path) -> None:
         "",
         "| Horizon | MAE | RMSE | PICP | MPIW | PINAW | Coverage Error | Interval Score |",
         "|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+    ])
     for item in result["test_metrics"]["by_horizon"]:
         lines.append(
             "| {horizon} | {mae} | {rmse} | {picp} | {mpiw} | {pinaw} | {coverage_error} | {interval_score} |".format(
@@ -82,6 +99,11 @@ def render_v0_report(result: dict[str, Any], path: str | Path) -> None:
             )
         )
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def render_v0_report(result: dict[str, Any], path: str | Path) -> None:
+    """Backward-compatible alias for the version-aware report renderer."""
+    render_report(result, path)
 
 
 def execute(model_name: str, config: dict[str, Any]) -> dict[str, Any]:

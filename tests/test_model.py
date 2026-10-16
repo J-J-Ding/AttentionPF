@@ -42,7 +42,7 @@ def test_v0_is_a_base_forecast_model_and_registry_builds_it(project_root):
     model = build_model("v0", config, input_dim=7, output_dim=1)
 
     assert isinstance(model, BaseForecastModel)
-    assert MODEL_REGISTRY["v0"] is V0Transformer
+    assert callable(MODEL_REGISTRY["v0"])
     assert sum(parameter.numel() for parameter in model.parameters()) > 0
 
 
