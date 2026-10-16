@@ -135,8 +135,10 @@ def validate_config(config: dict[str, Any]) -> None:
         validate_v0_config(config)
     elif name == "v1":
         validate_v1_config(config)
+    elif name == "v2":
+        validate_v2_config(config)
     else:
-        raise ValueError("model.name must be 'v0' or 'v1'")
+        raise ValueError("model.name must be 'v0', 'v1' or 'v2'")
 
 
 def _validate_shared_config(config: dict[str, Any]) -> None:
@@ -240,6 +242,10 @@ def validate_v1_config(config: dict[str, Any]) -> None:
     """Validate V1 patch pretraining and adaptation settings."""
     _check_unknown_keys(config, _V1_SCHEMA)
     _validate_shared_config(config)
+    _validate_patch_pretrain_adaptation(config)
+
+
+def _validate_patch_pretrain_adaptation(config: dict[str, Any]) -> None:
     model = config["model"]
     if model["positional_encoding"] != "learned":
         raise ValueError("V1 positional_encoding must be 'learned'")
@@ -285,4 +291,25 @@ def validate_v1_config(config: dict[str, Any]) -> None:
         raise ValueError("adaptation.alpha must be positive")
     if not 0.0 <= float(adaptation["dropout"]) < 1.0:
         raise ValueError("adaptation.dropout must be in [0, 1)")
+
+
+def validate_v2_config(config: dict[str, Any]) -> None:
+    schema = {**_V1_SCHEMA, '': _V1_SCHEMA[''] | {'horizon_attention'},
+              'horizon_attention': {'mode', 'rank', 'use_horizon_embedding', 'cache_kv'}}
+    _check_unknown_keys(config, schema)
+    _validate_shared_config(config)
+    _validate_patch_pretrain_adaptation(config)
+    options = config['horizon_attention']
+    if options['mode'] not in {'low_rank', 'full_rank'}:
+        raise ValueError('horizon_attention.mode must be low_rank or full_rank')
+    rank, dim = options['rank'], config['model']['d_model']
+    if type(rank) is not int or rank <= 0:
+        raise ValueError('horizon_attention.rank must be a positive integer')
+    if (options['mode'] == 'low_rank' and rank >= dim) or (
+        options['mode'] == 'full_rank' and rank != dim
+    ):
+        raise ValueError('horizon_attention.rank must be < D for low_rank and == D for full_rank')
+    for name in ('use_horizon_embedding', 'cache_kv'):
+        if type(options[name]) is not bool:
+            raise ValueError(f'horizon_attention.{name} must be boolean')
 

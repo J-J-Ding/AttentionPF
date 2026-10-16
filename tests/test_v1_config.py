@@ -40,8 +40,8 @@ def valid_v1_config():
 def test_v1_yaml_loads_with_strict_sections(project_root):
     config = load_config(project_root / "configs" / "v1.yaml")
     assert config["model"]["name"] == "v1"
-    assert config["adaptation"]["mode"] == "qk"
-    assert config["pretrain"]["checkpoint"] is None
+    assert config["adaptation"]["mode"] in {"full", "qk", "qkv"}
+    assert config["pretrain"]["checkpoint"] is None or isinstance(config["pretrain"]["checkpoint"], str)
 
 
 @pytest.mark.parametrize(

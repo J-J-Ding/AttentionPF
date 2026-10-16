@@ -31,14 +31,15 @@ def test_execute_rejects_unknown_model(project_root):
 def test_v1_is_registered_and_requires_an_explicit_pretrain_checkpoint(project_root):
     from models import MODEL_REGISTRY, build_model
 
-    config = load_config(project_root / "configs" / "v1.yaml")
+    from test_v1_config import valid_v1_config
+    config = valid_v1_config()
     assert set(MODEL_REGISTRY) >= {"v0", "v1"}
     with pytest.raises(ValueError, match="pretrain.checkpoint"):
         build_model("v1", config, input_dim=7, output_dim=1)
 
 
-def test_report_renderer_contains_required_fields(project_root):
-    path = project_root / "results" / "test_report.md"
+def test_report_renderer_contains_required_fields(tmp_path):
+    path = tmp_path / "test_report.md"
     result = {
         "experiment_id": "demo",
         "best_epoch": 2,
