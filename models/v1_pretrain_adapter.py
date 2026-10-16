@@ -5,9 +5,30 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from dataload.pretrain import patchify
+from models.base_model import BaseForecastModel
+
+
+class LowRankProjectionAdapter(nn.Module):
+    """LoRA-style additive projection delta with a zero-output initialization."""
+
+    def __init__(self, d_model: int, rank: int, alpha: float, dropout: float) -> None:
+        super().__init__()
+        if not 0 < rank <= d_model:
+            raise ValueError("rank must be in [1, d_model]")
+        if alpha <= 0:
+            raise ValueError("alpha must be positive")
+        self.A = nn.Parameter(torch.empty(rank, d_model))
+        self.B = nn.Parameter(torch.zeros(d_model, rank))
+        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
+        self.dropout = nn.Dropout(dropout)
+        self.scale = float(alpha) / rank
+
+    def forward(self, x: Tensor) -> Tensor:
+        return ((self.dropout(x) @ self.A.t()) @ self.B.t()) * self.scale
 
 
 class SeparatedSelfAttention(nn.Module):
@@ -25,15 +46,37 @@ class SeparatedSelfAttention(nn.Module):
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
         self.attention_dropout = nn.Dropout(dropout)
+        self.adapters = nn.ModuleDict()
+
+    def configure_adapters(
+        self, names: set[str], rank: int, alpha: float, dropout: float
+    ) -> None:
+        self.adapters = nn.ModuleDict(
+            {
+                name: LowRankProjectionAdapter(
+                    self.d_model, rank=rank, alpha=alpha, dropout=dropout
+                )
+                for name in sorted(names)
+            }
+        )
+
+    def project(self, name: str, x: Tensor) -> Tensor:
+        projections = {"q": self.q_proj, "k": self.k_proj, "v": self.v_proj}
+        if name not in projections:
+            raise ValueError(f"unknown projection '{name}'")
+        projected = projections[name](x)
+        if name in self.adapters:
+            projected = projected + self.adapters[name](x)
+        return projected
 
     def _heads(self, x: Tensor) -> Tensor:
         batch, tokens, _ = x.shape
         return x.reshape(batch, tokens, self.n_heads, self.head_dim).transpose(1, 2)
 
     def forward(self, x: Tensor) -> Tensor:
-        q = self._heads(self.q_proj(x))
-        k = self._heads(self.k_proj(x))
-        v = self._heads(self.v_proj(x))
+        q = self._heads(self.project("q", x))
+        k = self._heads(self.project("k", x))
+        v = self._heads(self.project("v", x))
         weights = torch.softmax(q @ k.transpose(-2, -1) / math.sqrt(self.head_dim), dim=-1)
         attended = self.attention_dropout(weights) @ v
         attended = attended.transpose(1, 2).contiguous().reshape(x.shape)
@@ -148,4 +191,122 @@ class V1MaskedPretrainer(nn.Module):
             name: value.detach().clone()
             for name, value in self.backbone.state_dict().items()
             if name != "mask_token"
+        }
+
+
+class V1PretrainAdapter(BaseForecastModel):
+    """Stage-II patch forecaster supporting full, Q/K, and Q/K/V adaptation."""
+
+    def __init__(
+        self,
+        *,
+        input_dim: int,
+        output_dim: int,
+        seq_len: int,
+        pred_len: int,
+        patch_length: int,
+        patch_stride: int,
+        d_model: int,
+        n_heads: int,
+        n_layers: int,
+        d_ff: int,
+        dropout: float,
+        activation: str,
+        epsilon: float,
+        adaptation_mode: str,
+        adapter_rank: int,
+        adapter_alpha: float,
+        adapter_dropout: float,
+    ) -> None:
+        super().__init__()
+        if output_dim <= 0 or pred_len <= 0 or epsilon <= 0:
+            raise ValueError("output_dim, pred_len, and epsilon must be positive")
+        self.backbone = V1PatchBackbone(
+            input_dim=input_dim,
+            seq_len=seq_len,
+            patch_length=patch_length,
+            patch_stride=patch_stride,
+            d_model=d_model,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            d_ff=d_ff,
+            dropout=dropout,
+            activation=activation,
+        )
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.seq_len = seq_len
+        self.pred_len = pred_len
+        self.epsilon = float(epsilon)
+        self.output_projection = nn.Linear(d_model, pred_len * output_dim * 3)
+        self.adaptation_mode = ""
+        self._adapter_settings = (adapter_rank, adapter_alpha, adapter_dropout)
+        self.configure_adaptation(adaptation_mode)
+
+    def configure_adaptation(self, mode: str) -> None:
+        if mode not in {"full", "qk", "qkv"}:
+            raise ValueError("adaptation mode must be 'full', 'qk', or 'qkv'")
+        names = set() if mode == "full" else ({"q", "k"} if mode == "qk" else {"q", "k", "v"})
+        rank, alpha, dropout = self._adapter_settings
+        for layer in self.backbone.layers:
+            layer.self_attn.configure_adapters(names, rank, alpha, dropout)
+        for parameter in self.backbone.parameters():
+            parameter.requires_grad_(mode == "full")
+        self.backbone.mask_token.requires_grad_(False)
+        if mode != "full":
+            for layer in self.backbone.layers:
+                for parameter in layer.self_attn.adapters.parameters():
+                    parameter.requires_grad_(True)
+        for parameter in self.output_projection.parameters():
+            parameter.requires_grad_(True)
+        self.adaptation_mode = mode
+
+    def load_pretrained_backbone(self, state: dict[str, Tensor]) -> None:
+        current = self.backbone.state_dict()
+        expected = {
+            name
+            for name in current
+            if name != "mask_token" and ".adapters." not in name
+        }
+        received = set(state)
+        if received != expected:
+            missing = sorted(expected - received)
+            extra = sorted(received - expected)
+            raise ValueError(
+                f"Incompatible pretrained backbone keys; missing={missing}, extra={extra}"
+            )
+        for name in sorted(expected):
+            if current[name].shape != state[name].shape:
+                raise ValueError(
+                    f"Incompatible pretrained backbone shape for {name}: "
+                    f"expected {tuple(current[name].shape)}, got {tuple(state[name].shape)}"
+                )
+        merged = dict(current)
+        merged.update(state)
+        self.backbone.load_state_dict(merged, strict=True)
+
+    def forward(self, x: Tensor) -> Tensor:
+        if x.ndim != 3 or x.shape[1:] != (self.seq_len, self.input_dim):
+            raise ValueError(
+                f"x must have shape [B,{self.seq_len},{self.input_dim}], got {tuple(x.shape)}"
+            )
+        patches = patchify(x, self.backbone.patch_length, self.backbone.patch_stride)
+        summary = self.backbone(patches)[:, -1]
+        raw = self.output_projection(summary).reshape(
+            x.shape[0], self.pred_len, self.output_dim, 3
+        )
+        point = raw[..., 0]
+        lower = point - F.softplus(raw[..., 1]) - self.epsilon
+        upper = point + F.softplus(raw[..., 2]) + self.epsilon
+        return torch.stack((lower, point, upper), dim=-1)
+
+    def parameter_summary(self) -> dict[str, int | float]:
+        total = sum(parameter.numel() for parameter in self.parameters())
+        trainable = sum(
+            parameter.numel() for parameter in self.parameters() if parameter.requires_grad
+        )
+        return {
+            "total_params": total,
+            "trainable_params": trainable,
+            "trainable_ratio": trainable / total if total else 0.0,
         }
