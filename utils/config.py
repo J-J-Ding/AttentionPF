@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 
 
-_SCHEMA: dict[str, set[str]] = {
+_COMMON_SCHEMA: dict[str, set[str]] = {
     "": {
         "experiment",
         "data",
@@ -72,6 +72,23 @@ _SCHEMA: dict[str, set[str]] = {
     },
 }
 
+_V0_SCHEMA = _COMMON_SCHEMA
+_V1_SCHEMA: dict[str, set[str]] = {
+    **_COMMON_SCHEMA,
+    "": _COMMON_SCHEMA[""] | {"patch", "mask", "pretrain", "adaptation"},
+    "patch": {"length", "stride"},
+    "mask": {"random_ratio", "tail_ratio", "random_probability"},
+    "pretrain": {
+        "checkpoint",
+        "epochs",
+        "val_ratio",
+        "early_stopping_patience",
+        "learning_rate",
+        "weight_decay",
+    },
+    "adaptation": {"mode", "rank", "alpha", "dropout"},
+}
+
 
 def load_config(path: str | Path) -> dict[str, Any]:
     """Load a YAML mapping and validate its complete V0 contract."""
@@ -86,8 +103,8 @@ def load_config(path: str | Path) -> dict[str, Any]:
     return config
 
 
-def _check_unknown_keys(config: dict[str, Any]) -> None:
-    for path, allowed in _SCHEMA.items():
+def _check_unknown_keys(config: dict[str, Any], schema: dict[str, set[str]]) -> None:
+    for path, allowed in schema.items():
         node: Any = config
         if path:
             for part in path.split("."):
@@ -109,8 +126,20 @@ def _check_unknown_keys(config: dict[str, Any]) -> None:
 
 
 def validate_config(config: dict[str, Any]) -> None:
-    """Raise ``ValueError`` when a V0 configuration violates the spec."""
-    _check_unknown_keys(config)
+    """Raise ``ValueError`` when a versioned configuration violates its spec."""
+    if not isinstance(config, dict):
+        raise ValueError("Configuration root must be a mapping")
+    model = config.get("model")
+    name = model.get("name") if isinstance(model, dict) else None
+    if name == "v0":
+        validate_v0_config(config)
+    elif name == "v1":
+        validate_v1_config(config)
+    else:
+        raise ValueError("model.name must be 'v0' or 'v1'")
+
+
+def _validate_shared_config(config: dict[str, Any]) -> None:
     data = config["data"]
     model = config["model"]
     interval = config["interval"]
@@ -156,9 +185,6 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("model.dropout must be in [0, 1)")
     if model["activation"] not in {"relu", "gelu"}:
         raise ValueError("model.activation must be 'relu' or 'gelu'")
-    if model["positional_encoding"] != "sinusoidal":
-        raise ValueError("V0 positional_encoding must be 'sinusoidal'")
-
     lower = float(interval["lower_quantile"])
     median = float(interval["median_quantile"])
     upper = float(interval["upper_quantile"])
@@ -200,4 +226,63 @@ def validate_config(config: dict[str, Any]) -> None:
     for name in ("sample_index", "channel_index"):
         if not isinstance(visualization[name], int) or visualization[name] < 0:
             raise ValueError(f"visualization.{name} must be a non-negative integer")
+
+
+def validate_v0_config(config: dict[str, Any]) -> None:
+    """Validate the unchanged V0 configuration contract."""
+    _check_unknown_keys(config, _V0_SCHEMA)
+    _validate_shared_config(config)
+    if config["model"]["positional_encoding"] != "sinusoidal":
+        raise ValueError("V0 positional_encoding must be 'sinusoidal'")
+
+
+def validate_v1_config(config: dict[str, Any]) -> None:
+    """Validate V1 patch pretraining and adaptation settings."""
+    _check_unknown_keys(config, _V1_SCHEMA)
+    _validate_shared_config(config)
+    model = config["model"]
+    if model["positional_encoding"] != "learned":
+        raise ValueError("V1 positional_encoding must be 'learned'")
+
+    patch = config["patch"]
+    for name in ("length", "stride"):
+        if not isinstance(patch[name], int) or patch[name] <= 0:
+            raise ValueError(f"patch.{name} must be a positive integer")
+    seq_len = config["data"]["seq_len"]
+    if patch["length"] > seq_len or (seq_len - patch["length"]) % patch["stride"] != 0:
+        raise ValueError("patch length/stride must exactly cover data.seq_len without padding")
+
+    mask = config["mask"]
+    for name in ("random_ratio", "tail_ratio"):
+        value = mask[name]
+        if not isinstance(value, (int, float)) or not 0.0 < float(value) < 1.0:
+            raise ValueError(f"mask.{name} must be in (0, 1)")
+    probability = mask["random_probability"]
+    if not isinstance(probability, (int, float)) or not 0.0 <= float(probability) <= 1.0:
+        raise ValueError("mask.random_probability must be in [0, 1]")
+
+    pretrain = config["pretrain"]
+    checkpoint = pretrain["checkpoint"]
+    if checkpoint is not None and not isinstance(checkpoint, str):
+        raise ValueError("pretrain.checkpoint must be null or a path string")
+    for name in ("epochs", "early_stopping_patience"):
+        if not isinstance(pretrain[name], int) or pretrain[name] <= 0:
+            raise ValueError(f"pretrain.{name} must be a positive integer")
+    if not isinstance(pretrain["val_ratio"], (int, float)) or not 0.0 < float(pretrain["val_ratio"]) < 1.0:
+        raise ValueError("pretrain.val_ratio must be in (0, 1)")
+    if float(pretrain["learning_rate"]) <= 0.0:
+        raise ValueError("pretrain.learning_rate must be positive")
+    if float(pretrain["weight_decay"]) < 0.0:
+        raise ValueError("pretrain.weight_decay must be non-negative")
+
+    adaptation = config["adaptation"]
+    if adaptation["mode"] not in {"full", "qk", "qkv"}:
+        raise ValueError("adaptation.mode must be 'full', 'qk', or 'qkv'")
+    rank = adaptation["rank"]
+    if not isinstance(rank, int) or not 0 < rank <= model["d_model"]:
+        raise ValueError("adaptation.rank must be in [1, model.d_model]")
+    if float(adaptation["alpha"]) <= 0.0:
+        raise ValueError("adaptation.alpha must be positive")
+    if not 0.0 <= float(adaptation["dropout"]) < 1.0:
+        raise ValueError("adaptation.dropout must be in [0, 1)")
 
