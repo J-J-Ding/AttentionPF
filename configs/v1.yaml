@@ -25,9 +25,9 @@ data:
 
 model:
   name: v1
-  d_model: 128
+  d_model: 256
   n_heads: 4
-  n_layers: 3
+  n_layers: 2
   d_ff: 256
   dropout: 0.1
   activation: gelu
@@ -46,7 +46,7 @@ pretrain:
   checkpoint: checkpoints/v1_etth1_ms_seed2026_20261016-124742-706835_4d289f/best.pt
   epochs: 50
   val_ratio: 0.1
-  early_stopping_patience: 10
+  early_stopping_patience: 3
   learning_rate: 1.0e-3
   weight_decay: 1.0e-4
 
