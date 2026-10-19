@@ -25,10 +25,10 @@ data:
 
 model:
   name: v1
-  d_model: 128
+  d_model: 256
   n_heads: 4
-  n_layers: 3
-  d_ff: 256
+  n_layers: 2
+  d_ff: 1024
   dropout: 0.1
   activation: gelu
   positional_encoding: learned
@@ -43,10 +43,10 @@ mask:
   random_probability: 0.5
 
 pretrain:
-  checkpoint: checkpoints/v1_etth1_ms_seed2026_20261016-124742-706835_4d289f/best.pt
+  checkpoint: checkpoints/v1_etth1_ms_seed2026_20261019-225426-733011_281a99/best.pt
   epochs: 50
   val_ratio: 0.1
-  early_stopping_patience: 10
+  early_stopping_patience: 3
   learning_rate: 1.0e-3
   weight_decay: 1.0e-4
 
@@ -75,7 +75,7 @@ scheduler:
 
 training:
   epochs: 50
-  early_stopping_patience: 10
+  early_stopping_patience: 3
   monitor: val_loss
   monitor_mode: min
   grad_clip_norm: 1.0

@@ -80,15 +80,17 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
         f"| PINAW | {_format_metric(overall.get('pinaw'))} |",
         f"| Coverage Error | {_format_metric(overall.get('coverage_error'))} |",
         f"| Interval Score | {_format_metric(overall.get('interval_score'))} |",
+        f"| CRPS | {_format_metric(overall.get('crps'))} |",
+        f"| QICE (%) | {_format_metric(overall.get('qice'))} |",
         "",
         "## By Horizon",
         "",
-        "| Horizon | MAE | RMSE | PICP | MPIW | PINAW | Coverage Error | Interval Score |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Horizon | MAE | RMSE | PICP | MPIW | PINAW | Coverage Error | Interval Score | CRPS | QICE (%) |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for item in result["test_metrics"]["by_horizon"]:
         lines.append(
-            "| {horizon} | {mae} | {rmse} | {picp} | {mpiw} | {pinaw} | {coverage_error} | {interval_score} |".format(
+            "| {horizon} | {mae} | {rmse} | {picp} | {mpiw} | {pinaw} | {coverage_error} | {interval_score} | {crps} | {qice} |".format(
                 horizon=item["horizon"],
                 mae=_format_metric(item.get("mae")),
                 rmse=_format_metric(item.get("rmse")),
@@ -97,6 +99,8 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
                 pinaw=_format_metric(item.get("pinaw")),
                 coverage_error=_format_metric(item.get("coverage_error")),
                 interval_score=_format_metric(item.get("interval_score")),
+                crps=_format_metric(item.get("crps")),
+                qice=_format_metric(item.get("qice")),
             )
         )
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

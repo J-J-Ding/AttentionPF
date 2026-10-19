@@ -30,6 +30,8 @@ def _inputs(project_root: Path):
                 "pinaw": 0.1 + 0.01 * horizon,
                 "coverage_error": abs(0.9 - (0.85 + 0.01 * horizon)),
                 "interval_score": 3.0 + horizon,
+                "crps": 0.3 + 0.1 * horizon,
+                "qice": 1.0 + 0.2 * horizon,
             }
         )
     metrics = {"overall": {}, "by_horizon": by_horizon}

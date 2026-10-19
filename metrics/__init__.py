@@ -6,10 +6,14 @@ import numpy as np
 
 from metrics.interval_metrics import interval_metrics
 from metrics.point_metrics import point_metrics
+from metrics.probabilistic_metrics import probabilistic_metrics
 
 
 def compute_metrics(
-    prediction: np.ndarray, target: np.ndarray, coverage: float
+    prediction: np.ndarray,
+    target: np.ndarray,
+    coverage: float,
+    quantiles: tuple[float, float, float] | None = None,
 ) -> dict[str, object]:
     """Return original-scale metrics overall and for every forecast horizon."""
     prediction_values = np.asarray(prediction)
@@ -23,6 +27,9 @@ def compute_metrics(
         )
     if not np.isfinite(prediction_values).all() or not np.isfinite(target_values).all():
         raise ValueError("prediction and target must be finite")
+    if quantiles is None:
+        tail = (1.0 - float(coverage)) / 2.0
+        quantiles = (tail, 0.5, 1.0 - tail)
 
     target_range = float(np.ptp(target_values))
 
@@ -37,6 +44,7 @@ def compute_metrics(
                 target_range=target_range,
             )
         )
+        result.update(probabilistic_metrics(pred, truth, quantiles))
         return result
 
     overall = summarize(prediction_values, target_values)
@@ -48,5 +56,10 @@ def compute_metrics(
     return {"overall": overall, "by_horizon": by_horizon}
 
 
-__all__ = ["compute_metrics", "interval_metrics", "point_metrics"]
+__all__ = [
+    "compute_metrics",
+    "interval_metrics",
+    "point_metrics",
+    "probabilistic_metrics",
+]
 

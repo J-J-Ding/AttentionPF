@@ -169,7 +169,7 @@ def _horizon_metrics_figure(
     if not isinstance(records, list) or not records:
         raise ValueError("metrics.by_horizon must be a non-empty list")
     horizons = [int(record["horizon"]) for record in records]
-    figure, axes = plt.subplots(3, 2, figsize=(10.0, 9.5), constrained_layout=True)
+    figure, axes = plt.subplots(4, 2, figsize=(10.0, 12.0), constrained_layout=True)
     flat_axes = axes.ravel()
     point_axis = flat_axes[0]
     for key, label, color, marker in (
@@ -200,6 +200,8 @@ def _horizon_metrics_figure(
         ("pinaw", "PINAW"),
         ("coverage_error", "Coverage error"),
         ("interval_score", "Interval score"),
+        ("crps", "CRPS"),
+        ("qice", "QICE (%)"),
     )
     for axis, (key, label) in zip(flat_axes[1:], names):
         try:

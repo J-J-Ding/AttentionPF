@@ -110,7 +110,16 @@ def _evaluate(
     channels = _target_channel_indices(config)
     predictions = scaler.inverse_transform(scaled_predictions, channels)
     targets = scaler.inverse_transform(scaled_targets, channels)
-    metrics = compute_metrics(predictions, targets, config["evaluation"]["coverage"])
+    metrics = compute_metrics(
+        predictions,
+        targets,
+        config["evaluation"]["coverage"],
+        quantiles=(
+            config["interval"]["lower_quantile"],
+            config["interval"]["median_quantile"],
+            config["interval"]["upper_quantile"],
+        ),
+    )
     return {
         "loss": total_loss / total_elements,
         "elements": total_elements,

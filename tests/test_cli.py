@@ -59,6 +59,8 @@ def test_report_renderer_contains_required_fields(project_root):
                 "pinaw": 0.4,
                 "coverage_error": 0.0,
                 "interval_score": 4.0,
+                "crps": 0.75,
+                "qice": 1.25,
             },
             "by_horizon": [{"horizon": 1, "mae": 1.0, "picp": 0.9, "mpiw": 3.0}],
         },
@@ -81,6 +83,8 @@ def test_report_renderer_contains_required_fields(project_root):
         "PINAW",
         "Coverage Error",
         "Interval Score",
+        "CRPS",
+        "QICE (%)",
         "By Horizon",
     ):
         assert label in content

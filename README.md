@@ -97,6 +97,16 @@ all artifacts under one experiment-specific `results/` directory and updates
 alpha, parameter counts and ratio, timing, GPU memory, overall metrics, and
 metrics by forecast horizon.
 
+## Probabilistic metrics
+
+Evaluation reports CRPS and QICE alongside the point and interval metrics, both
+overall and by forecast horizon. Because the models emit only the configured
+lower, median, and upper quantiles, their quantile function is reconstructed by
+piecewise-linear interpolation and linear extrapolation to probability levels 0
+and 1. `crps` is the resulting quantile-integral CRPS approximation. QICE uses
+10 equal-probability intervals from that reconstructed quantile function and is
+reported as `qice` in percentage points (lower is better for both).
+
 ## Tests
 
 After activating `py312`:

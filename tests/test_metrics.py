@@ -4,6 +4,7 @@ import pytest
 from metrics import compute_metrics
 from metrics.interval_metrics import interval_metrics
 from metrics.point_metrics import point_metrics
+from metrics.probabilistic_metrics import qice_percent, quantile_crps
 
 
 def test_point_metrics_match_hand_calculation():
@@ -52,6 +53,8 @@ def test_compute_metrics_returns_overall_and_every_horizon():
 
     assert result["overall"]["mae"] == pytest.approx(0.5)
     assert result["overall"]["picp"] == 1.0
+    assert result["overall"]["crps"] >= 0.0
+    assert result["overall"]["qice"] >= 0.0
     assert len(result["by_horizon"]) == 2
     assert [item["horizon"] for item in result["by_horizon"]] == [1, 2]
 
@@ -71,6 +74,33 @@ def test_pinaw_is_none_when_target_range_is_zero():
         target_range=0.0,
     )
     assert result["pinaw"] is None
+
+
+def test_quantile_crps_matches_uniform_distribution_at_its_median():
+    prediction = np.array([[0.05, 0.5, 0.95]])
+    target = np.array([0.5])
+
+    result = quantile_crps(prediction, target, (0.05, 0.5, 0.95))
+
+    assert result == pytest.approx(1.0 / 12.0)
+
+
+def test_qice_is_zero_for_ten_equally_populated_quantile_intervals():
+    prediction = np.tile(np.array([0.05, 0.5, 0.95]), (10, 1))
+    target = np.arange(0.05, 1.0, 0.1)
+
+    result = qice_percent(prediction, target, (0.05, 0.5, 0.95), bins=10)
+
+    assert result == pytest.approx(0.0)
+
+
+def test_probabilistic_metrics_reject_crossing_quantiles():
+    with pytest.raises(ValueError, match="nondecreasing"):
+        quantile_crps(
+            np.array([[0.0, 2.0, 1.0]]),
+            np.array([0.5]),
+            (0.05, 0.5, 0.95),
+        )
 
 
 @pytest.mark.parametrize(
