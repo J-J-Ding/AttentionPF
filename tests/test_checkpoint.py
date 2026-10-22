@@ -140,6 +140,26 @@ def test_v1_supervised_contract_rejects_same_shape_adapter_scaling_change():
         validate_checkpoint_contract(saved, expected)
 
 
+def test_v1_supervised_contract_rejects_legacy_three_quantile_head():
+    saved = {
+        "interval": {
+            "lower_quantile": 0.05,
+            "median_quantile": 0.5,
+            "upper_quantile": 0.95,
+            "epsilon": 1.0e-6,
+        }
+    }
+    expected = {
+        "interval": {
+            "quantiles": [index / 100.0 for index in range(5, 100, 5)],
+            "epsilon": 1.0e-6,
+        }
+    }
+
+    with pytest.raises(ValueError, match="interval"):
+        validate_checkpoint_contract(saved, expected)
+
+
 def test_scaler_contract_rejects_changed_normalization_statistics():
     saved = {"mean": np.array([1.0, 2.0]), "scale": np.array([3.0, 4.0])}
     changed = {"mean": np.array([1.0, 2.5]), "scale": np.array([3.0, 4.0])}

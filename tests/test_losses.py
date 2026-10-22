@@ -3,6 +3,8 @@ import torch
 
 from losses.interval_loss import interval_score_loss
 from losses.quantile_loss import QuantileLoss
+from losses.interval_loss import QuantileIntervalLoss
+from utils.config import V1_QUANTILES
 
 
 def test_quantile_loss_matches_hand_calculation():
@@ -49,4 +51,20 @@ def test_interval_score_loss_matches_inside_and_outside_cases():
     loss = interval_score_loss(lower, upper, target, coverage=0.9)
 
     assert loss.item() == pytest.approx((2.0 + 22.0) / 2.0)
+
+
+def test_nineteen_quantile_loss_and_primary_interval_are_supported():
+    prediction = torch.tensor(V1_QUANTILES).reshape(1, 1, 1, 19).requires_grad_()
+    target = torch.tensor([[[0.5]]])
+    quantile_only = QuantileLoss(V1_QUANTILES)(prediction, target)
+    combined = QuantileIntervalLoss(
+        V1_QUANTILES, coverage=0.9, interval_weight=0.25
+    )(prediction, target)
+
+    assert combined.detach().item() == pytest.approx(
+        quantile_only.detach().item() + 0.25 * 0.9
+    )
+    combined.backward()
+    assert prediction.grad is not None
+    assert torch.isfinite(prediction.grad).all()
 

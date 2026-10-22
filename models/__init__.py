@@ -8,6 +8,7 @@ from typing import Any, Callable
 from models.base_model import BaseForecastModel
 from models.v0_transformer import V0Transformer
 from models.v1_pretrain_adapter import V1PretrainAdapter
+from utils.config import quantile_levels
 
 
 ModelBuilder = Callable[[dict[str, Any], int, int], BaseForecastModel]
@@ -41,6 +42,7 @@ def _build_v1(config: dict[str, Any], input_dim: int, output_dim: int) -> BaseFo
         n_heads=model_config["n_heads"], n_layers=model_config["n_layers"],
         d_ff=model_config["d_ff"], dropout=model_config["dropout"],
         activation=model_config["activation"], epsilon=config["interval"]["epsilon"],
+        quantiles=quantile_levels(config),
         adaptation_mode=adaptation["mode"], adapter_rank=adaptation["rank"],
         adapter_alpha=adaptation["alpha"], adapter_dropout=adaptation["dropout"],
     )

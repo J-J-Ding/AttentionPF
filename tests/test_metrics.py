@@ -5,6 +5,7 @@ from metrics import compute_metrics
 from metrics.interval_metrics import interval_metrics
 from metrics.point_metrics import point_metrics
 from metrics.probabilistic_metrics import qice_percent, quantile_crps
+from utils.config import V1_COVERAGE_LEVELS, V1_QUANTILES
 
 
 def test_point_metrics_match_hand_calculation():
@@ -101,6 +102,33 @@ def test_probabilistic_metrics_reject_crossing_quantiles():
             np.array([0.5]),
             (0.05, 0.5, 0.95),
         )
+
+
+def test_multi_coverage_metrics_use_direct_quantiles_and_percentage_qice():
+    target = np.arange(0.005, 1.0, 0.01).reshape(100, 1, 1)
+    prediction = np.broadcast_to(
+        np.asarray(V1_QUANTILES).reshape(1, 1, 1, 19),
+        (100, 1, 1, 19),
+    ).copy()
+
+    result = compute_metrics(
+        prediction,
+        target,
+        quantiles=V1_QUANTILES,
+        coverage_levels=V1_COVERAGE_LEVELS,
+        primary_coverage=0.9,
+    )["overall"]
+
+    assert result["qice"] == pytest.approx(0.0)
+    assert len(result["coverage_intervals"]) == 9
+    for record, coverage in zip(result["coverage_intervals"], V1_COVERAGE_LEVELS):
+        assert record["coverage"] == pytest.approx(coverage)
+        assert record["lower_quantile"] == pytest.approx((1.0 - coverage) / 2.0)
+        assert record["upper_quantile"] == pytest.approx((1.0 + coverage) / 2.0)
+        assert record["picp"] == pytest.approx(coverage)
+    primary = result["coverage_intervals"][-1]
+    for key in ("picp", "mpiw", "pinaw", "coverage_error", "interval_score"):
+        assert result[key] == primary[key]
 
 
 @pytest.mark.parametrize(

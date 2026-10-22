@@ -37,7 +37,7 @@ class StandardScaler:
         if not self.is_fitted:
             raise RuntimeError("StandardScaler must be fitted before use")
         values = np.asarray(data)
-        channel_axis = values.ndim - 2 if values.ndim >= 4 and values.shape[-1] == 3 else values.ndim - 1
+        channel_axis = values.ndim - 2 if values.ndim == 4 else values.ndim - 1
         indices = np.arange(len(self.mean_)) if channel_indices is None else np.asarray(channel_indices)
         indices = np.where(indices < 0, indices + len(self.mean_), indices)
         if np.any(indices < 0) or np.any(indices >= len(self.mean_)):

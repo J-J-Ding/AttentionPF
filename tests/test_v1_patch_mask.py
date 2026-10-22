@@ -9,14 +9,14 @@ from dataload.pretrain import (
 )
 
 
-def test_patchify_preserves_temporal_and_channel_order_without_padding():
+def test_patchify_preserves_channel_major_unfold_order_without_padding():
     x = torch.tensor(
         [[[0.0, 10.0], [1.0, 11.0], [2.0, 12.0], [3.0, 13.0], [4.0, 14.0], [5.0, 15.0]]]
     )
     patches = patchify(x, patch_length=4, patch_stride=2)
     assert patches.shape == (1, 2, 8)
-    assert torch.equal(patches[0, 0], torch.tensor([0.0, 10.0, 1.0, 11.0, 2.0, 12.0, 3.0, 13.0]))
-    assert torch.equal(patches[0, 1], torch.tensor([2.0, 12.0, 3.0, 13.0, 4.0, 14.0, 5.0, 15.0]))
+    assert torch.equal(patches[0, 0], torch.tensor([0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0]))
+    assert torch.equal(patches[0, 1], torch.tensor([2.0, 3.0, 4.0, 5.0, 12.0, 13.0, 14.0, 15.0]))
 
 
 @pytest.mark.parametrize(

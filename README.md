@@ -99,13 +99,19 @@ metrics by forecast horizon.
 
 ## Probabilistic metrics
 
-Evaluation reports CRPS and QICE alongside the point and interval metrics, both
-overall and by forecast horizon. Because the models emit only the configured
-lower, median, and upper quantiles, their quantile function is reconstructed by
-piecewise-linear interpolation and linear extrapolation to probability levels 0
-and 1. `crps` is the resulting quantile-integral CRPS approximation. QICE uses
-10 equal-probability intervals from that reconstructed quantile function and is
-reported as `qice` in percentage points (lower is better for both).
+V0 retains its lower/median/upper output contract. V1 predicts 19 ordered
+quantiles from 0.05 through 0.95 in steps of 0.05. These directly form nine
+central prediction intervals with nominal coverage from 10% through 90%; Q0.50
+is the point forecast and Q0.05--Q0.95 remains the primary 90% interval.
+
+Evaluation reports CRPS and QICE alongside point and interval metrics, both
+overall and by forecast horizon. V1 CRPS integrates pinball loss over the
+piecewise-linear 19-point quantile function, with linear tail extrapolation to
+probability levels 0 and 1. V1 QICE is the mean absolute empirical coverage
+error over the nine central intervals and is reported in percentage points.
+This coverage-based definition is distinct from equal-probability-bin QICE.
+Each `predictions.npz` stores `quantile_levels` and `coverage_levels` beside the
+predictions and targets so the output protocol is self-describing.
 
 ## Tests
 

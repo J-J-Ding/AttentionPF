@@ -8,6 +8,7 @@ from models.v1_pretrain_adapter import (
     V1PatchBackbone,
     V1PretrainAdapter,
 )
+from utils.config import V1_QUANTILES
 
 
 def backbone_kwargs():
@@ -32,6 +33,7 @@ def pretrained_state():
 def make_model(mode):
     model = V1PretrainAdapter(
         **backbone_kwargs(), pred_len=3, output_dim=1, epsilon=1e-6,
+        quantiles=V1_QUANTILES,
         adaptation_mode=mode, adapter_rank=2, adapter_alpha=4.0, adapter_dropout=0.0,
     )
     model.load_pretrained_backbone(pretrained_state())
@@ -87,12 +89,11 @@ def test_pretrained_backbone_loading_is_strict_by_name_and_shape(breakage):
 def test_forecast_shape_non_crossing_and_backward_freezing(mode):
     model = make_model(mode)
     prediction = model(torch.randn(2, 8, 3))
-    assert prediction.shape == (2, 3, 1, 3)
-    assert torch.all(prediction[..., 0] < prediction[..., 1])
-    assert torch.all(prediction[..., 1] < prediction[..., 2])
+    assert prediction.shape == (2, 3, 1, 19)
+    assert torch.all(torch.diff(prediction, dim=-1) > 0)
     target = torch.randn(2, 3, 1)
     QuantileIntervalLoss(
-        (0.05, 0.5, 0.95), coverage=0.9, interval_weight=0.0
+        V1_QUANTILES, coverage=0.9, interval_weight=0.0
     )(prediction, target).backward()
 
     adapter_parameters = [(name, p) for name, p in model.named_parameters() if ".adapters." in name]
@@ -113,3 +114,21 @@ def test_qk_and_qkv_train_fewer_parameters_than_full():
     assert summaries["qk"]["trainable_params"] < summaries["full"]["trainable_params"]
     assert summaries["qkv"]["trainable_params"] < summaries["full"]["trainable_params"]
     assert summaries["qk"]["trainable_params"] < summaries["qkv"]["trainable_params"]
+
+
+def test_extreme_gap_logits_keep_all_nineteen_quantiles_strictly_ordered(monkeypatch):
+    model = make_model("qk")
+    with torch.no_grad():
+        model.output_projection.weight.zero_()
+        bias = model.output_projection.bias.view(3, 1, 19)
+        bias.fill_(-1000.0)
+        bias[..., 9] = 0.0
+
+    def forbidden_sort(*args, **kwargs):
+        raise AssertionError("sorting must not be used to construct quantiles")
+
+    monkeypatch.setattr(torch, "sort", forbidden_sort)
+    prediction = model(torch.zeros(1, 8, 3))
+
+    assert prediction.shape == (1, 3, 1, 19)
+    assert torch.all(torch.diff(prediction, dim=-1) > 0)

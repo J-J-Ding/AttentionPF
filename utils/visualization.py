@@ -12,6 +12,13 @@ matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import numpy as np
 
+from utils.config import (
+    central_interval_indices,
+    coverage_levels,
+    primary_coverage,
+    quantile_levels,
+)
+
 
 _COLORS = {
     "target": "#222222",
@@ -42,11 +49,12 @@ def _validate_arrays(
     targets: np.ndarray,
     channel_index: int,
     sample_index: int,
+    quantile_count: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     prediction_array = np.asarray(predictions)
     target_array = np.asarray(targets)
-    if prediction_array.ndim != 4 or prediction_array.shape[-1] != 3:
-        raise ValueError("prediction shape must be [N, P, C_out, 3]")
+    if prediction_array.ndim != 4 or prediction_array.shape[-1] != quantile_count:
+        raise ValueError("prediction shape must be [N, P, C_out, Q]")
     if target_array.shape != prediction_array.shape[:-1]:
         raise ValueError("target shape must equal prediction shape without its last axis")
     if prediction_array.shape[0] == 0:
@@ -121,6 +129,9 @@ def _forecast_figure(
     channel_index: int,
     sample_index: int,
     max_points: int,
+    lower_index: int,
+    median_index: int,
+    upper_index: int,
 ) -> plt.Figure:
     figure, axes = plt.subplots(2, 1, figsize=(9.0, 7.0), constrained_layout=True)
     count = min(max_points, predictions.shape[0])
@@ -129,14 +140,14 @@ def _forecast_figure(
     time_target = targets[:count, 0, channel_index]
     axes[0].fill_between(
         x_time,
-        time_pred[:, 0],
-        time_pred[:, 2],
+        time_pred[:, lower_index],
+        time_pred[:, upper_index],
         color=_COLORS["interval"],
         alpha=0.45,
         label="Prediction interval",
     )
     axes[0].plot(x_time, time_target, color=_COLORS["target"], linewidth=1.7, label="Observed")
-    axes[0].plot(x_time, time_pred[:, 1], color=_COLORS["point"], linewidth=1.7, label="Point forecast")
+    axes[0].plot(x_time, time_pred[:, median_index], color=_COLORS["point"], linewidth=1.7, label="Point forecast")
     axes[0].set_title("Rolling one-step interval forecasts")
     axes[0].set_xlabel("Test sample")
     axes[0].set_ylabel("Value")
@@ -147,18 +158,50 @@ def _forecast_figure(
     sample_target = targets[sample_index, :, channel_index]
     axes[1].fill_between(
         horizons,
-        sample_pred[:, 0],
-        sample_pred[:, 2],
+        sample_pred[:, lower_index],
+        sample_pred[:, upper_index],
         color=_COLORS["interval"],
         alpha=0.45,
         label="Prediction interval",
     )
     axes[1].plot(horizons, sample_target, color=_COLORS["target"], marker="o", linewidth=1.7, label="Observed")
-    axes[1].plot(horizons, sample_pred[:, 1], color=_COLORS["point"], marker="s", linewidth=1.7, label="Point forecast")
+    axes[1].plot(horizons, sample_pred[:, median_index], color=_COLORS["point"], marker="s", linewidth=1.7, label="Point forecast")
     axes[1].set_title(f"Forecast profile for test sample {sample_index}")
     axes[1].set_xlabel("Forecast horizon")
     axes[1].set_ylabel("Value")
     axes[1].legend(frameon=False, ncol=3)
+    return figure
+
+
+def _coverage_calibration_figure(metrics: dict[str, Any]) -> plt.Figure:
+    records = metrics.get("overall", {}).get("coverage_intervals")
+    if not isinstance(records, list) or len(records) < 2:
+        raise ValueError("overall coverage_intervals must contain at least two records")
+    nominal = [float(record["coverage"]) for record in records]
+    empirical = [float(record["picp"]) for record in records]
+    figure, axis = plt.subplots(figsize=(6.2, 5.2), constrained_layout=True)
+    axis.plot(
+        nominal,
+        empirical,
+        color=_COLORS["point"],
+        marker="o",
+        linewidth=2.0,
+        label="Empirical coverage",
+    )
+    axis.plot(
+        [0.0, 1.0],
+        [0.0, 1.0],
+        color=_COLORS["reference"],
+        linestyle="--",
+        linewidth=1.5,
+        label="Perfect calibration",
+    )
+    axis.set_xlim(0.0, 1.0)
+    axis.set_ylim(0.0, 1.0)
+    axis.set_xlabel("Nominal coverage")
+    axis.set_ylabel("Empirical PICP")
+    axis.set_title("Prediction-interval calibration")
+    axis.legend(frameon=False)
     return figure
 
 
@@ -247,8 +290,15 @@ def generate_experiment_figures(
         return {}
     channel_index = int(options["channel_index"])
     sample_index = int(options["sample_index"])
+    quantiles = quantile_levels(config)
+    coverages = coverage_levels(config)
+    primary = primary_coverage(config)
     prediction_array, target_array = _validate_arrays(
-        predictions, targets, channel_index, sample_index
+        predictions, targets, channel_index, sample_index, len(quantiles)
+    )
+    lower_index, upper_index = central_interval_indices(quantiles, primary)
+    median_index = next(
+        index for index, value in enumerate(quantiles) if abs(value - 0.5) <= 1.0e-9
     )
     figures_dir = Path(result_dir) / "figures"
     figures_dir.mkdir(parents=True, exist_ok=False)
@@ -266,6 +316,9 @@ def generate_experiment_figures(
                 channel_index,
                 sample_index,
                 int(options["max_points"]),
+                lower_index,
+                median_index,
+                upper_index,
             ),
             figures_dir,
             "forecast_interval",
@@ -274,13 +327,22 @@ def generate_experiment_figures(
             paths,
         )
         _save_figure(
-            _horizon_metrics_figure(metrics, float(config["evaluation"]["coverage"])),
+            _horizon_metrics_figure(metrics, primary),
             figures_dir,
             "horizon_metrics",
             formats,
             dpi,
             paths,
         )
+        if len(coverages) > 1:
+            _save_figure(
+                _coverage_calibration_figure(metrics),
+                figures_dir,
+                "coverage_calibration",
+                formats,
+                dpi,
+                paths,
+            )
     return paths
 
 

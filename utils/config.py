@@ -72,10 +72,15 @@ _COMMON_SCHEMA: dict[str, set[str]] = {
     },
 }
 
-_V0_SCHEMA = _COMMON_SCHEMA
+V1_QUANTILES = tuple(index / 100.0 for index in range(5, 100, 5))
+V1_COVERAGE_LEVELS = tuple(index / 10.0 for index in range(1, 10))
+
+_V0_SCHEMA = {path: set(keys) for path, keys in _COMMON_SCHEMA.items()}
 _V1_SCHEMA: dict[str, set[str]] = {
-    **_COMMON_SCHEMA,
+    **{path: set(keys) for path, keys in _COMMON_SCHEMA.items()},
     "": _COMMON_SCHEMA[""] | {"patch", "mask", "pretrain", "adaptation"},
+    "interval": {"quantiles", "epsilon"},
+    "evaluation": {"coverage_levels", "primary_coverage", "save_predictions"},
     "patch": {"length", "stride"},
     "mask": {"random_ratio", "tail_ratio", "random_probability"},
     "pretrain": {
@@ -88,6 +93,53 @@ _V1_SCHEMA: dict[str, set[str]] = {
     },
     "adaptation": {"mode", "rank", "alpha", "dropout"},
 }
+
+
+def quantile_levels(config: dict[str, Any]) -> tuple[float, ...]:
+    """Return the ordered quantile levels for either configuration version."""
+    interval = config["interval"]
+    if "quantiles" in interval:
+        return tuple(float(value) for value in interval["quantiles"])
+    return (
+        float(interval["lower_quantile"]),
+        float(interval["median_quantile"]),
+        float(interval["upper_quantile"]),
+    )
+
+
+def coverage_levels(config: dict[str, Any]) -> tuple[float, ...]:
+    """Return every central interval coverage requested for evaluation."""
+    evaluation = config["evaluation"]
+    if "coverage_levels" in evaluation:
+        return tuple(float(value) for value in evaluation["coverage_levels"])
+    return (float(evaluation["coverage"]),)
+
+
+def primary_coverage(config: dict[str, Any]) -> float:
+    """Return the coverage represented by backward-compatible flat metrics."""
+    evaluation = config["evaluation"]
+    return float(evaluation.get("primary_coverage", evaluation.get("coverage")))
+
+
+def central_interval_indices(
+    quantiles: tuple[float, ...], coverage: float
+) -> tuple[int, int]:
+    """Resolve a central coverage to exact lower and upper quantile indices."""
+    lower = (1.0 - float(coverage)) / 2.0
+    upper = (1.0 + float(coverage)) / 2.0
+
+    def locate(level: float) -> int:
+        matches = [
+            index for index, value in enumerate(quantiles)
+            if abs(value - level) <= 1.0e-9
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"coverage {coverage} requires quantile {level}, which is not uniquely configured"
+            )
+        return matches[0]
+
+    return locate(lower), locate(upper)
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -185,17 +237,10 @@ def _validate_shared_config(config: dict[str, Any]) -> None:
         raise ValueError("model.dropout must be in [0, 1)")
     if model["activation"] not in {"relu", "gelu"}:
         raise ValueError("model.activation must be 'relu' or 'gelu'")
-    lower = float(interval["lower_quantile"])
-    median = float(interval["median_quantile"])
-    upper = float(interval["upper_quantile"])
-    if not (0.0 < lower < median == 0.5 < upper < 1.0):
-        raise ValueError("quantiles must satisfy 0 < lower < median == 0.5 < upper < 1")
     if float(interval["epsilon"]) <= 0.0:
         raise ValueError("interval.epsilon must be positive")
     if float(config["loss"]["interval_weight"]) < 0.0:
         raise ValueError("loss.interval_weight must be non-negative")
-    if abs(float(evaluation["coverage"]) - (upper - lower)) > 1.0e-9:
-        raise ValueError("evaluation.coverage must equal upper_quantile - lower_quantile")
 
     training = config["training"]
     if not isinstance(training["epochs"], int) or training["epochs"] <= 0:
@@ -232,6 +277,14 @@ def validate_v0_config(config: dict[str, Any]) -> None:
     """Validate the unchanged V0 configuration contract."""
     _check_unknown_keys(config, _V0_SCHEMA)
     _validate_shared_config(config)
+    interval = config["interval"]
+    lower = float(interval["lower_quantile"])
+    median = float(interval["median_quantile"])
+    upper = float(interval["upper_quantile"])
+    if not (0.0 < lower < median == 0.5 < upper < 1.0):
+        raise ValueError("quantiles must satisfy 0 < lower < median == 0.5 < upper < 1")
+    if abs(float(config["evaluation"]["coverage"]) - (upper - lower)) > 1.0e-9:
+        raise ValueError("evaluation.coverage must equal upper_quantile - lower_quantile")
     if config["model"]["positional_encoding"] != "sinusoidal":
         raise ValueError("V0 positional_encoding must be 'sinusoidal'")
 
@@ -243,6 +296,35 @@ def validate_v1_config(config: dict[str, Any]) -> None:
     model = config["model"]
     if model["positional_encoding"] != "learned":
         raise ValueError("V1 positional_encoding must be 'learned'")
+
+    quantiles = config["interval"]["quantiles"]
+    if not isinstance(quantiles, list) or len(quantiles) != len(V1_QUANTILES):
+        raise ValueError("V1 interval.quantiles must contain the 19 levels from 0.05 to 0.95")
+    try:
+        quantile_values = tuple(float(value) for value in quantiles)
+    except (TypeError, ValueError) as error:
+        raise ValueError("V1 interval.quantiles must contain finite numeric values") from error
+    if any(not value == value or abs(value) == float("inf") for value in quantile_values):
+        raise ValueError("V1 interval.quantiles must contain finite numeric values")
+    if any(abs(actual - expected) > 1.0e-9 for actual, expected in zip(quantile_values, V1_QUANTILES)):
+        raise ValueError("V1 interval.quantiles must equal 0.05 through 0.95 in steps of 0.05")
+
+    levels = config["evaluation"]["coverage_levels"]
+    if not isinstance(levels, list) or len(levels) != len(V1_COVERAGE_LEVELS):
+        raise ValueError("V1 evaluation.coverage_levels must contain 0.1 through 0.9")
+    try:
+        coverage_values = tuple(float(value) for value in levels)
+    except (TypeError, ValueError) as error:
+        raise ValueError("V1 evaluation.coverage_levels must be numeric") from error
+    if any(abs(actual - expected) > 1.0e-9 for actual, expected in zip(coverage_values, V1_COVERAGE_LEVELS)):
+        raise ValueError("V1 evaluation.coverage_levels must equal 0.1 through 0.9")
+    primary = float(config["evaluation"]["primary_coverage"])
+    if abs(primary - 0.9) > 1.0e-9 or not any(
+        abs(primary - value) <= 1.0e-9 for value in coverage_values
+    ):
+        raise ValueError("V1 evaluation.primary_coverage must be 0.9")
+    for coverage in coverage_values:
+        central_interval_indices(quantile_values, coverage)
 
     patch = config["patch"]
     for name in ("length", "stride"):

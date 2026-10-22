@@ -47,6 +47,17 @@ def test_ms_interval_inverse_transform_uses_only_last_feature(etth1_path):
     np.testing.assert_allclose(restored, scaler.mean_[-1])
 
 
+def test_ms_nineteen_quantile_inverse_transform_uses_channel_axis(etth1_path):
+    values = _etth1_values(etth1_path)
+    scaler = StandardScaler().fit(values[:1000])
+    scaled = np.zeros((2, 4, 1, 19), dtype=np.float32)
+
+    restored = scaler.inverse_transform(scaled, channel_indices=[-1])
+
+    assert restored.shape == (2, 4, 1, 19)
+    np.testing.assert_allclose(restored, scaler.mean_[-1])
+
+
 def test_zero_variance_channel_stays_finite():
     values = np.array([[1.0, 2.0], [1.0, 4.0], [1.0, 6.0]])
     scaler = StandardScaler(epsilon=1.0e-8).fit(values)

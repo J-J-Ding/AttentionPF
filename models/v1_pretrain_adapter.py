@@ -213,6 +213,7 @@ class V1PretrainAdapter(BaseForecastModel):
         dropout: float,
         activation: str,
         epsilon: float,
+        quantiles: tuple[float, ...],
         adaptation_mode: str,
         adapter_rank: int,
         adapter_alpha: float,
@@ -221,6 +222,16 @@ class V1PretrainAdapter(BaseForecastModel):
         super().__init__()
         if output_dim <= 0 or pred_len <= 0 or epsilon <= 0:
             raise ValueError("output_dim, pred_len, and epsilon must be positive")
+        values = tuple(float(value) for value in quantiles)
+        if len(values) < 3 or len(values) % 2 == 0:
+            raise ValueError("quantiles must have an odd length of at least 3")
+        if not all(0.0 < value < 1.0 for value in values) or not all(
+            left < right for left, right in zip(values, values[1:])
+        ):
+            raise ValueError("quantiles must be strictly increasing inside (0, 1)")
+        median_index = len(values) // 2
+        if abs(values[median_index] - 0.5) > 1.0e-9:
+            raise ValueError("the center quantile must be 0.5")
         self.backbone = V1PatchBackbone(
             input_dim=input_dim,
             seq_len=seq_len,
@@ -238,7 +249,11 @@ class V1PretrainAdapter(BaseForecastModel):
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.epsilon = float(epsilon)
-        self.output_projection = nn.Linear(d_model, pred_len * output_dim * 3)
+        self.quantiles = values
+        self.median_index = median_index
+        self.output_projection = nn.Linear(
+            d_model, pred_len * output_dim * len(values)
+        )
         self.adaptation_mode = ""
         self._adapter_settings = (adapter_rank, adapter_alpha, adapter_dropout)
         self.configure_adaptation(adaptation_mode)
@@ -293,12 +308,21 @@ class V1PretrainAdapter(BaseForecastModel):
         patches = patchify(x, self.backbone.patch_length, self.backbone.patch_stride)
         summary = self.backbone(patches)[:, -1]
         raw = self.output_projection(summary).reshape(
-            x.shape[0], self.pred_len, self.output_dim, 3
+            x.shape[0], self.pred_len, self.output_dim, len(self.quantiles)
         )
-        point = raw[..., 0]
-        lower = point - F.softplus(raw[..., 1]) - self.epsilon
-        upper = point + F.softplus(raw[..., 2]) + self.epsilon
-        return torch.stack((lower, point, upper), dim=-1)
+        point = raw[..., self.median_index]
+        left: list[Tensor] = []
+        current = point
+        for index in range(self.median_index - 1, -1, -1):
+            current = current - F.softplus(raw[..., index]) - self.epsilon
+            left.append(current)
+        left.reverse()
+        right: list[Tensor] = []
+        current = point
+        for index in range(self.median_index + 1, len(self.quantiles)):
+            current = current + F.softplus(raw[..., index]) + self.epsilon
+            right.append(current)
+        return torch.stack((*left, point, *right), dim=-1)
 
     def parameter_summary(self) -> dict[str, int | float]:
         total = sum(parameter.numel() for parameter in self.parameters())

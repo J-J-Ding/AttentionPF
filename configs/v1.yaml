@@ -43,7 +43,7 @@ mask:
   random_probability: 0.5
 
 pretrain:
-  checkpoint: checkpoints/v1_etth1_ms_seed2026_20261019-225426-733011_281a99/best.pt
+  checkpoint: checkpoints/v1_etth1_ms_seed2026_20261019-232701-422387_977d5a/best.pt
   epochs: 50
   val_ratio: 0.1
   early_stopping_patience: 3
@@ -57,9 +57,7 @@ adaptation:
   dropout: 0.0
 
 interval:
-  lower_quantile: 0.05
-  median_quantile: 0.50
-  upper_quantile: 0.95
+  quantiles: [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
   epsilon: 1.0e-6
 
 loss:
@@ -82,7 +80,8 @@ training:
   resume_from: null
 
 evaluation:
-  coverage: 0.9
+  coverage_levels: [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90]
+  primary_coverage: 0.90
   save_predictions: true
 
 logging:

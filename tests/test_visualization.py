@@ -36,6 +36,12 @@ def _inputs(project_root: Path):
         )
     metrics = {"overall": {}, "by_horizon": by_horizon}
     config = {
+        "interval": {
+            "lower_quantile": 0.05,
+            "median_quantile": 0.5,
+            "upper_quantile": 0.95,
+            "epsilon": 1.0e-6,
+        },
         "evaluation": {"coverage": 0.9},
         "visualization": {
             "enabled": True,

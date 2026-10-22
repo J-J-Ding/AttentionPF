@@ -80,7 +80,10 @@ def test_real_etth1_v1_two_stage_smoke(project_root, tmp_path):
     assert stage_i["paths"]["best_checkpoint"].is_file()
     assert stage_ii["paths"]["report"].name == "V1_result.md"
     assert stage_ii["paths"]["report"].is_file()
-    saved = np.load(stage_ii["paths"]["predictions_npz"])["predictions"]
-    assert saved.shape[1:] == (2, 1, 3)
-    assert np.all(saved[..., 0] < saved[..., 1])
-    assert np.all(saved[..., 1] < saved[..., 2])
+    artifact = np.load(stage_ii["paths"]["predictions_npz"])
+    saved = artifact["predictions"]
+    expected_channels = len(config["data"]["target_cols"])
+    assert saved.shape[1:] == (2, expected_channels, 19)
+    assert np.all(np.diff(saved, axis=-1) > 0)
+    assert artifact["quantile_levels"].shape == (19,)
+    assert artifact["coverage_levels"].shape == (9,)

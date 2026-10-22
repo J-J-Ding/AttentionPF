@@ -32,16 +32,33 @@ class QuantileIntervalLoss(nn.Module):
         super().__init__()
         if interval_weight < 0.0:
             raise ValueError("interval_weight must be non-negative")
-        self.quantile = QuantileLoss(quantiles)
+        values = tuple(float(value) for value in quantiles)
+        self.quantile = QuantileLoss(values)
         self.coverage = float(coverage)
         self.interval_weight = float(interval_weight)
+        lower = (1.0 - self.coverage) / 2.0
+        upper = (1.0 + self.coverage) / 2.0
+        try:
+            self.lower_index = next(
+                index for index, value in enumerate(values) if abs(value - lower) <= 1.0e-9
+            )
+            self.upper_index = next(
+                index for index, value in enumerate(values) if abs(value - upper) <= 1.0e-9
+            )
+        except StopIteration as error:
+            raise ValueError(
+                "coverage requires matching central lower and upper quantiles"
+            ) from error
 
     def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         loss = self.quantile(prediction, target)
         if self.interval_weight == 0.0:
             return loss
         interval = interval_score_loss(
-            prediction[..., 0], prediction[..., 2], target, self.coverage
+            prediction[..., self.lower_index],
+            prediction[..., self.upper_index],
+            target,
+            self.coverage,
         )
         return loss + self.interval_weight * interval
 

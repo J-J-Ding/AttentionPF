@@ -74,6 +74,7 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
         "| Metric | Value |",
         "|---|---:|",
         f"| MAE | {_format_metric(overall.get('mae'))} |",
+        f"| MSE | {_format_metric(overall.get('mse'))} |",
         f"| RMSE | {_format_metric(overall.get('rmse'))} |",
         f"| PICP | {_format_metric(overall.get('picp'))} |",
         f"| MPIW | {_format_metric(overall.get('mpiw'))} |",
@@ -82,6 +83,33 @@ def render_report(result: dict[str, Any], path: str | Path) -> None:
         f"| Interval Score | {_format_metric(overall.get('interval_score'))} |",
         f"| CRPS | {_format_metric(overall.get('crps'))} |",
         f"| QICE (%) | {_format_metric(overall.get('qice'))} |",
+    ])
+    interval_records = overall.get("coverage_intervals")
+    if isinstance(interval_records, list) and len(interval_records) > 1:
+        lines.extend([
+            "",
+            "QICE is the mean absolute coverage error across the central intervals below, reported in percentage points.",
+            "CRPS is the quantile-integral score on the original target scale.",
+            "",
+            "## Overall Coverage Intervals",
+            "",
+            "| Coverage | Lower Q | Upper Q | PICP | MPIW | PINAW | Coverage Error | Interval Score |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for record in interval_records:
+            lines.append(
+                "| {coverage} | {lower} | {upper} | {picp} | {mpiw} | {pinaw} | {error} | {score} |".format(
+                    coverage=_format_metric(record.get("coverage")),
+                    lower=_format_metric(record.get("lower_quantile")),
+                    upper=_format_metric(record.get("upper_quantile")),
+                    picp=_format_metric(record.get("picp")),
+                    mpiw=_format_metric(record.get("mpiw")),
+                    pinaw=_format_metric(record.get("pinaw")),
+                    error=_format_metric(record.get("coverage_error")),
+                    score=_format_metric(record.get("interval_score")),
+                )
+            )
+    lines.extend([
         "",
         "## By Horizon",
         "",

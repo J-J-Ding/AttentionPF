@@ -32,6 +32,7 @@ def test_v1_is_registered_and_requires_an_explicit_pretrain_checkpoint(project_r
     from models import MODEL_REGISTRY, build_model
 
     config = load_config(project_root / "configs" / "v1.yaml")
+    config["pretrain"]["checkpoint"] = None
     assert set(MODEL_REGISTRY) >= {"v0", "v1"}
     with pytest.raises(ValueError, match="pretrain.checkpoint"):
         build_model("v1", config, input_dim=7, output_dim=1)

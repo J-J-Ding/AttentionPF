@@ -24,13 +24,12 @@ def _validate_patch_geometry(length: int, patch_length: int, patch_stride: int) 
 
 
 def patchify(x: Tensor, patch_length: int, patch_stride: int) -> Tensor:
-    """Convert ``[B,L,C]`` into ordered flattened patches ``[B,N,S*C]``."""
+    """Convert ``[B,L,C]`` into channel-major flattened patches ``[B,N,C*S]``."""
     if x.ndim != 3:
         raise ValueError(f"x must have shape [B,L,C], got {tuple(x.shape)}")
     _validate_patch_geometry(x.shape[1], patch_length, patch_stride)
     patches = x.unfold(dimension=1, size=patch_length, step=patch_stride)
     return patches.contiguous().flatten(start_dim=2)
-    # return patches.permute(0, 1, 3, 2).contiguous().flatten(start_dim=2)
 
 
 def _masked_count(n_patches: int, ratio: float) -> int:

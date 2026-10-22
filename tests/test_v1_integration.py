@@ -65,11 +65,14 @@ def test_v1_modes_run_through_shared_supervised_engine(etth1_path, tmp_path, mod
     model = build_model("v1", config, bundle.input_dim, bundle.output_dim)
     result = run_experiment(model, small(bundle.train_loader, True), small(bundle.val_loader), small(bundle.test_loader), config, bundle.scaler)
     prediction = result["test"]["predictions"]
-    assert prediction.shape[1:] == (2, 1, 3)
-    assert np.all(prediction[..., 0] < prediction[..., 1])
-    assert np.all(prediction[..., 1] < prediction[..., 2])
+    assert prediction.shape[1:] == (2, 1, 19)
+    assert np.all(np.diff(prediction, axis=-1) > 0)
     for key in ("best_checkpoint", "last_checkpoint", "metrics_json", "predictions_npz", "resolved_config", "figures_dir"):
         assert result["paths"][key].exists()
     assert result["adaptation_mode"] == mode
     assert result["pretrain_checkpoint_id"] == "shared-pretrain"
     assert result["trainable_ratio"] == pytest.approx(result["trainable_params"] / result["total_params"])
+    saved = np.load(result["paths"]["predictions_npz"])
+    assert saved["quantile_levels"].shape == (19,)
+    assert saved["coverage_levels"].shape == (9,)
+    assert "coverage_calibration_png" in result["paths"]["figures"]

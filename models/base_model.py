@@ -9,10 +9,10 @@ from torch import nn
 
 
 class BaseForecastModel(nn.Module, ABC):
-    """Forecast models map history windows to non-crossing interval triples."""
+    """Forecast models map history windows to ordered quantile forecasts."""
 
     @abstractmethod
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Return predictions with shape ``[B, P, C_out, 3]``."""
+        """Return predictions with shape ``[B, P, C_out, Q]``."""
         raise NotImplementedError
 

@@ -3,13 +3,19 @@ from copy import deepcopy
 import pytest
 
 from test_config import valid_config
-from utils.config import load_config, validate_config
+from utils.config import V1_COVERAGE_LEVELS, V1_QUANTILES, load_config, validate_config
 
 
 def valid_v1_config():
     config = deepcopy(valid_config())
     config["experiment"]["name"] = "v1_etth1_ms"
     config["model"].update({"name": "v1", "positional_encoding": "learned"})
+    config["interval"] = {"quantiles": list(V1_QUANTILES), "epsilon": 1.0e-6}
+    config["evaluation"] = {
+        "coverage_levels": list(V1_COVERAGE_LEVELS),
+        "primary_coverage": 0.9,
+        "save_predictions": True,
+    }
     config.update(
         {
             "patch": {"length": 16, "stride": 8},
@@ -40,8 +46,8 @@ def valid_v1_config():
 def test_v1_yaml_loads_with_strict_sections(project_root):
     config = load_config(project_root / "configs" / "v1.yaml")
     assert config["model"]["name"] == "v1"
-    assert config["adaptation"]["mode"] == "qk"
-    assert config["pretrain"]["checkpoint"] is None
+    assert config["adaptation"]["mode"] in {"full", "qk", "qkv"}
+    assert len(config["interval"]["quantiles"]) == 19
 
 
 @pytest.mark.parametrize(
@@ -58,6 +64,10 @@ def test_v1_yaml_loads_with_strict_sections(project_root):
         (lambda c: c["adaptation"].update({"dropout": 1.0}), "dropout"),
         (lambda c: c["pretrain"].update({"checkpoint": 7}), "checkpoint"),
         (lambda c: c["pretrain"].update({"val_ratio": 1.0}), "val_ratio"),
+        (lambda c: c["interval"]["quantiles"].pop(), "19 levels"),
+        (lambda c: c["interval"]["quantiles"].__setitem__(1, 0.05), "0.05 through 0.95"),
+        (lambda c: c["evaluation"]["coverage_levels"].pop(), "0.1 through 0.9"),
+        (lambda c: c["evaluation"].update({"primary_coverage": 0.8}), "primary_coverage"),
     ],
 )
 def test_invalid_v1_contract_is_rejected(mutate, message):

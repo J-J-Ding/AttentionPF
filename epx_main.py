@@ -19,22 +19,23 @@ from losses.interval_loss import QuantileIntervalLoss
 from metrics import compute_metrics
 from utils.checkpoint import capture_rng_state, load_checkpoint, save_checkpoint
 from utils.logger import ExperimentPaths, append_jsonl, create_experiment_paths, setup_logger
+from utils.config import coverage_levels, primary_coverage, quantile_levels
 from utils.seed import set_seed
 from utils.visualization import generate_experiment_figures
 
 
-def _validate_prediction(prediction: torch.Tensor, target: torch.Tensor) -> None:
-    expected = (*target.shape, 3)
+def _validate_prediction(
+    prediction: torch.Tensor, target: torch.Tensor, quantiles: tuple[float, ...]
+) -> None:
+    expected = (*target.shape, len(quantiles))
     if tuple(prediction.shape) != expected:
         raise ValueError(
             f"prediction shape {tuple(prediction.shape)} does not match expected {expected}"
         )
     if not torch.isfinite(prediction).all():
         raise FloatingPointError("model produced a non-finite prediction")
-    if not torch.all(prediction[..., 0] < prediction[..., 1]):
-        raise ValueError("model violated Lower < Point")
-    if not torch.all(prediction[..., 1] < prediction[..., 2]):
-        raise ValueError("model violated Point < Upper")
+    if not torch.all(torch.diff(prediction, dim=-1) > 0):
+        raise ValueError("model produced crossing or equal quantiles")
 
 
 def train_one_epoch(
@@ -53,7 +54,7 @@ def train_one_epoch(
         target = target.to(device)
         optimizer.zero_grad(set_to_none=True)
         prediction = model(x)
-        _validate_prediction(prediction, target)
+        _validate_prediction(prediction, target, quantile_levels(config))
         loss = loss_fn(prediction, target)
         if not torch.isfinite(loss):
             raise FloatingPointError("training produced a non-finite loss")
@@ -94,7 +95,7 @@ def _evaluate(
             x = x.to(device)
             target = target.to(device)
             prediction = model(x)
-            _validate_prediction(prediction, target)
+            _validate_prediction(prediction, target, quantile_levels(config))
             loss = loss_fn(prediction, target)
             if not torch.isfinite(loss):
                 raise FloatingPointError("evaluation produced a non-finite loss")
@@ -113,12 +114,9 @@ def _evaluate(
     metrics = compute_metrics(
         predictions,
         targets,
-        config["evaluation"]["coverage"],
-        quantiles=(
-            config["interval"]["lower_quantile"],
-            config["interval"]["median_quantile"],
-            config["interval"]["upper_quantile"],
-        ),
+        quantiles=quantile_levels(config),
+        coverage_levels=coverage_levels(config),
+        primary_coverage=primary_coverage(config),
     )
     return {
         "loss": total_loss / total_elements,
@@ -163,14 +161,9 @@ def predict(
 
 
 def build_loss(config: dict[str, Any]) -> nn.Module:
-    quantiles = (
-        config["interval"]["lower_quantile"],
-        config["interval"]["median_quantile"],
-        config["interval"]["upper_quantile"],
-    )
     return QuantileIntervalLoss(
-        quantiles,
-        coverage=float(config["evaluation"]["coverage"]),
+        quantile_levels(config),
+        coverage=primary_coverage(config),
         interval_weight=float(config["loss"]["interval_weight"]),
     )
 
@@ -408,6 +401,8 @@ def run_experiment(
             predictions_path,
             predictions=test_result["predictions"],
             targets=test_result["targets"],
+            quantile_levels=np.asarray(quantile_levels(config), dtype=np.float64),
+            coverage_levels=np.asarray(coverage_levels(config), dtype=np.float64),
         )
     metrics_path = paths.result_dir / "metrics.json"
     serializable = {
